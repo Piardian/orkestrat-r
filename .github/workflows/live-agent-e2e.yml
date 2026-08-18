@@ -1,0 +1,169 @@
+name: Live Agent E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Disposable fixture task for the real agent chain
+        required: false
+        default: Fix the bug in calc.py so python -m unittest -v passes. Only edit calc.py.
+
+permissions:
+  contents: read
+
+jobs:
+  live-agent-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: agent-core
+    env:
+      GEMINI_USER_A_KEY: ${{ secrets.GEMINI_USER_A_KEY }}
+      GEMINI_USER_B_KEY: ${{ secrets.GEMINI_USER_B_KEY }}
+      GEMINI_USER_C_KEY: ${{ secrets.GEMINI_USER_C_KEY }}
+      GEMINI_USER_D_KEY: ${{ secrets.GEMINI_USER_D_KEY }}
+      AGENT_ARMY_STATE_BACKEND: postgres
+      AGENT_ARMY_DATABASE_URL: postgresql://agent_army:agent_army@127.0.0.1:5432/agent_army
+      AGENT_ARMY_TEMPORAL_REQUIRE_POSTGRES: 'true'
+      AGENT_ARMY_PREFLIGHT_ENABLED: 'true'
+      AGENT_ARMY_ORCHESTRATOR: temporal
+      AGENT_ARMY_OPENHANDS_WORKSPACE: docker
+      AGENT_ARMY_VERIFICATION_SANDBOX: docker
+      AGENT_ARMY_VERIFICATION_IMAGE: ghcr.io/openhands/agent-server:1.42.1-python
+      AGENT_ARMY_OPENHANDS_SERVER_IMAGE: ghcr.io/openhands/agent-server:1.42.1-python
+      AGENT_ARMY_LITELLM_ENABLED: 'false'
+      TEMPORAL_ADDRESS: localhost:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: agent-army-e2e
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            agent-core/requirements-reliability.txt
+            agent-core/requirements-openhands.txt
+
+      - name: Require real provider secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in GEMINI_USER_A_KEY GEMINI_USER_B_KEY GEMINI_USER_C_KEY GEMINI_USER_D_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing GitHub Actions secret: $name"
+              exit 2
+            fi
+          done
+
+      - name: Install orchestration environment
+        run: python -m pip install -r requirements-reliability.txt
+
+      - name: Install isolated OpenHands environment
+        shell: bash
+        run: |
+          python -m venv .venv-openhands
+          .venv-openhands/bin/python -m pip install --upgrade pip
+          .venv-openhands/bin/python -m pip install -r requirements-openhands.txt
+          echo "OPENHANDS_PYTHON=$PWD/.venv-openhands/bin/python" >> "$GITHUB_ENV"
+
+      - name: Start durable infrastructure
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f infra/docker-compose.local.yml up -d agent-postgres temporal-postgres temporal
+          python - <<'PY'
+          import socket, time
+          deadline = time.time() + 120
+          targets = [("127.0.0.1", 5432, "postgres"), ("127.0.0.1", 7233, "temporal")]
+          for host, port, name in targets:
+              while time.time() < deadline:
+                  try:
+                      with socket.create_connection((host, port), timeout=2):
+                          print(name, "ready")
+                          break
+                  except OSError:
+                      time.sleep(2)
+              else:
+                  raise SystemExit(f"{name} was not ready before timeout")
+          PY
+
+      - name: Create disposable buggy repository
+        id: fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="$RUNNER_TEMP/agent-army-live-target"
+          mkdir -p "$TARGET"
+          git -C "$TARGET" init -q
+          git -C "$TARGET" config user.email e2e@example.com
+          git -C "$TARGET" config user.name "Agent Army E2E"
+          cat > "$TARGET/calc.py" <<'PY'
+          def add(a, b):
+              return a - b
+          PY
+          cat > "$TARGET/test_calc.py" <<'PY'
+          import unittest
+          from calc import add
+
+          class CalcTests(unittest.TestCase):
+              def test_add(self):
+                  self.assertEqual(add(2, 3), 5)
+
+          if __name__ == "__main__":
+              unittest.main()
+          PY
+          git -C "$TARGET" add calc.py test_calc.py
+          git -C "$TARGET" commit -qm baseline
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Start Temporal worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup python run_temporal_worker.py > "$RUNNER_TEMP/agent-army-worker.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/agent-army-worker.pid"
+          sleep 5
+          kill -0 "$(cat "$RUNNER_TEMP/agent-army-worker.pid")"
+
+      - name: Run real agent chain on disposable repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python run_integrated.py \
+            --orchestrator temporal \
+            --repo "${{ steps.fixture.outputs.target }}" \
+            --task "${{ inputs.task }}" \
+            --openhands-python "$OPENHANDS_PYTHON" \
+            --auto-apply \
+            --json | tee "$RUNNER_TEMP/agent-army-e2e-result.json"
+
+      - name: Verify fixture really changed and passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ steps.fixture.outputs.target }}"
+          python -m unittest -v
+          git status --porcelain
+          grep -q 'return a + b' calc.py
+
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-agent-e2e-evidence
+          path: |
+            ${{ runner.temp }}/agent-army-worker.log
+            ${{ runner.temp }}/agent-army-e2e-result.json
+          if-no-files-found: warn
+
+      - name: Cleanup disposable infrastructure
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/agent-army-worker.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/agent-army-worker.pid")" 2>/dev/null || true
+          fi
+          docker compose -f infra/docker-compose.local.yml down -v --remove-orphans || true
