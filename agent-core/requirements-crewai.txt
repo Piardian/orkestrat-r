@@ -1,0 +1,3 @@
+-r requirements.txt
+# CrewAI is kept outside the OpenHands venv to avoid dependency collisions.
+crewai>=1.15,<2

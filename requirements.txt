@@ -1,0 +1,2 @@
+agent-framework-gemini>=1.0.0a0
+python-dotenv>=1.0.0

@@ -1,0 +1,115 @@
+commander:
+  id: commander
+  default_profile: gemini-commander-main
+  fallback_profile: nemotron-main
+  automatic_fallback: false
+  profile: gemini-commander-main
+  enabled: true
+
+analysts:
+  - id: analyst-1
+    profile: gemini-user-b
+    role: evidence-first
+    enabled: true
+
+  - id: analyst-2
+    profile: gemini-user-c
+    role: skeptical
+    enabled: true
+
+  - id: analyst-3
+    profile: gemini-user-a
+    role: adversarial
+    enabled: true
+
+reviewer:
+  id: reviewer
+  profile: gemini-user-d
+  enabled: true
+
+patching:
+  mode: manual-codex
+  fallback_profile: nemotron-main
+  auto_fallback: false
+
+builder:
+  mode: local-safe
+  profile: gemini-user-a
+  max_runtime_seconds: 600
+  max_patch_bytes: 200000
+  rate_limit_enabled: true
+  rate_limit_requests_per_minute: 20
+  rate_limit_safety_margin: 1
+  rate_limit_window_seconds: 60
+  rate_limit_retry_attempts: 3
+  rate_limit_backoff_seconds:
+    - 5
+    - 15
+    - 30
+
+execution_policy:
+  simple:
+    analysts: 1
+    reviewer: false
+
+  standard:
+    analysts: 2
+    reviewer: true
+
+  critical:
+    analysts: 3
+    reviewer: true
+
+quorum:
+  simple: 1
+  standard: 1
+  critical: 2
+
+budgets:
+  commander:
+    max_output_tokens: 700
+  analyst:
+    max_output_tokens: 400
+  reviewer:
+    max_output_tokens: 500
+  evidence:
+    max_files: 5
+    max_lines_per_file: 80
+    max_bytes: 20000
+
+token_policy:
+  simple:
+    max_total_input_tokens: 8000
+  standard:
+    max_total_input_tokens: 15000
+  critical:
+    max_total_input_tokens: 22000
+
+pricing:
+  commander:
+    input_per_million: null
+    output_per_million: null
+  analyst:
+    input_per_million: null
+    output_per_million: null
+  reviewer:
+    input_per_million: null
+    output_per_million: null
+
+execution_modes:
+  default:
+    output_tokens: configured
+    truncation_regenerations: 1
+    json_repairs: 1
+    provider_retries: 2
+    retry_wait_max_seconds: 60
+    stage_timeout_seconds: 600
+    max_provider_requests_per_stage: 10
+  relaxed-acceptance:
+    output_tokens: provider_max
+    truncation_regenerations: 3
+    json_repairs: 2
+    provider_retries: 5
+    retry_wait_max_seconds: 120
+    stage_timeout_seconds: 900
+    max_provider_requests_per_stage: 15

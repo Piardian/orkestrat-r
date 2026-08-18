@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+evidence.json
+run_outputs/
+artifacts/
+runtime/
+temp/
+.venv-openhands/
+*.log
+.venv-crewai/
+.pytest_cache/
+
+.venv-mcp/

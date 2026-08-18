@@ -1,0 +1,14 @@
+{
+  "task": "Repo yapısını ve health endpoint'i araştır",
+  "search_terms": [
+    "/health",
+    "health",
+    "router"
+  ],
+  "max_search_results": 20,
+  "max_files": 5,
+  "max_lines_per_file": 80,
+  "max_chars_per_file": 12000,
+  "max_command_output_lines": 50,
+  "max_test_output_lines": 50
+}
