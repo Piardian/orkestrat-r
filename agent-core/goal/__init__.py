@@ -6,7 +6,8 @@ from .codex import CodexBuildArtifact, CodexRequest
 from .codex_service import GoalCodexService
 from .complexity import ComplexityAssessment, ComplexityAssessor, ComplexityPolicy
 from .complexity_service import GoalComplexityService
-from .finalize import FinalBuildArtifact, FinalReviewService, FinalReviewSummary
+from .finalize import FinalBuildArtifact, FinalReviewSummary
+from .sandboxed_finalize import SandboxedFinalReviewService as FinalReviewService
 from .metrics import GoalMetrics, GoalStageMetrics
 from .metrics_service import GoalMetricsService
 from .planner import GoalPlanner
@@ -17,7 +18,7 @@ from .review import GoalReview
 from .review_service import GoalReviewService
 from .status_service import GoalStatusService, GoalStatusSnapshot
 from .service import GoalService
-from .store import GoalStore
+from .store import GoalConcurrencyError, GoalStore, PostgresGoalStore, build_goal_store
 
 __all__ = [
     "BuilderAdapter",
@@ -34,6 +35,7 @@ __all__ = [
     "FinalBuildArtifact",
     "FinalReviewService",
     "FinalReviewSummary",
+    "GoalConcurrencyError",
     "GoalMetrics",
     "GoalCodexService",
     "GoalRecord",
@@ -47,6 +49,8 @@ __all__ = [
     "GoalStatusService",
     "GoalStatusSnapshot",
     "GoalStore",
+    "PostgresGoalStore",
     "ResumeResult",
+    "build_goal_store",
     "parse_goal_command",
 ]
