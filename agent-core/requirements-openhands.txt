@@ -1,3 +1,4 @@
+-r requirements.txt
 openhands-sdk==1.42.1
 openhands-tools==1.42.1
 openhands-workspace==1.42.1
