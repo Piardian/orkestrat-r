@@ -80,19 +80,18 @@ class GoalPlanner:
             evidence_packet = EvidenceBuilder(record.repo, search_plan.to_dict()).build()
             implementation_plan, impl_usage = self._build_implementation_plan(client, record, evidence_packet, profile)
 
-            planned_record = GoalRecord(
-                goal_id=record.goal_id,
-                goal=record.goal,
-                repo=record.repo,
-                status="PLANNED",
-                created_at=record.created_at,
-                updated_at=self.service._now(),
+            # Persist plan artifacts before publishing PLANNED. PostgreSQL treats
+            # save_transition as the guarded source-of-truth state change, while
+            # plain save intentionally refuses cross-status overwrites.
+            self.service.store.save_plan(record.goal_id, "search_plan.json", search_plan.to_dict())
+            self.service.store.save_plan(record.goal_id, "evidence.json", evidence_packet)
+            self.service.store.save_plan(record.goal_id, "plan.json", implementation_plan.to_dict())
+            planned_record = self.service.update_status(
+                record,
+                "PLANNED",
                 phase="planned",
-                utc_timestamp=record.utc_timestamp,
-                goal_type=record.goal_type,
-                notes=list(record.notes or []),
+                note="planning completed",
             )
-            self.service.store.save_plan_bundle(planned_record, search_plan.to_dict(), evidence_packet, implementation_plan)
             GoalMetricsService(self.service).refresh_goal(planned_record.goal_id)
 
             usage = {
