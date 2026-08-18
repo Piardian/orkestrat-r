@@ -1,0 +1,38 @@
+[project]
+name = "agent-army-core"
+version = "0.1.0"
+description = "OpenClaw/CrewAI/OpenHands agent orchestration core"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "PyYAML>=6.0,<7",
+  "python-dotenv>=1.0,<2",
+  "psycopg[binary]>=3.2,<4",
+]
+
+[dependency-groups]
+reliability = [
+  "temporalio>=1.15,<2",
+  "langfuse>=4,<5",
+  "sentry-sdk>=2,<3",
+  "opentelemetry-sdk>=1.30,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
+]
+crewai = [
+  "crewai>=1.15,<2",
+]
+openhands = [
+  "openhands-sdk==1.42.1",
+  "openhands-tools==1.42.1",
+  "openhands-workspace==1.42.1",
+  "openhands-agent-server==1.42.1",
+  "litellm==1.96.2",
+]
+
+[tool.uv]
+default-groups = ["reliability"]
+conflicts = [
+  [
+    { group = "crewai" },
+    { group = "openhands" },
+  ],
+]
