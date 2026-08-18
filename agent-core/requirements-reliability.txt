@@ -1,0 +1,7 @@
+-r requirements.txt
+# Durable workflow execution
+temporalio>=1.15,<2
+# LLM/agent observability (Python SDK v4)
+langfuse>=4,<5
+# Runtime exception/performance monitoring
+sentry-sdk>=2,<3

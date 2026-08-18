@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+from dataclasses import asdict
 import json
 import os
 import sys
 
+from observability import capture_exception, init_sentry, observe_run
 from orchestration import (
     CrewAIUnavailableError,
     GoalPipelineEngine,
     PipelineRequest,
+    PipelineRunResult,
     PipelineStageError,
     run_crewai_flow,
 )
@@ -28,7 +32,7 @@ def main() -> int:
     parser.add_argument("--openhands-python", default=None)
     parser.add_argument(
         "--orchestrator",
-        choices=["crewai", "native"],
+        choices=["crewai", "native", "temporal"],
         default=os.getenv("AGENT_ARMY_ORCHESTRATOR", "crewai"),
     )
     parser.add_argument(
@@ -52,20 +56,27 @@ def main() -> int:
         openhands_python=args.openhands_python,
         auto_apply=args.auto_apply,
     )
-    engine = GoalPipelineEngine(request)
+
+    init_sentry()
+    metadata = {
+        "orchestrator": args.orchestrator,
+        "auto_apply": args.auto_apply,
+        "resume": bool(args.goal_id),
+    }
 
     try:
-        if args.orchestrator == "crewai":
-            result = run_crewai_flow(engine)
-        else:
-            result = engine.run_native()
+        with observe_run("agent-army-pipeline", metadata=metadata):
+            result = _run(request, args.orchestrator)
     except CrewAIUnavailableError as exc:
+        capture_exception(exc, orchestrator=args.orchestrator)
         print(f"CREWAI_UNAVAILABLE: {exc}", file=sys.stderr)
         return 4
     except PipelineStageError as exc:
+        capture_exception(exc, orchestrator=args.orchestrator, stage=exc.stage)
         print(f"PIPELINE_FAILED stage={exc.stage}: {exc}", file=sys.stderr)
         return 5
     except Exception as exc:
+        capture_exception(exc, orchestrator=args.orchestrator)
         print(f"PIPELINE_FAILED: {exc}", file=sys.stderr)
         return 6
 
@@ -83,6 +94,23 @@ def main() -> int:
         if result.next_action:
             print(f"Next action: {result.next_action}")
     return 0
+
+
+def _run(request: PipelineRequest, orchestrator: str) -> PipelineRunResult:
+    if orchestrator == "temporal":
+        try:
+            from orchestration.temporal_flow import run_temporal_pipeline
+        except ImportError as exc:
+            raise RuntimeError(
+                "Temporal is not installed. Install agent-core/requirements-reliability.txt."
+            ) from exc
+        payload = asyncio.run(run_temporal_pipeline(asdict(request)))
+        return PipelineRunResult(**payload)
+
+    engine = GoalPipelineEngine(request)
+    if orchestrator == "crewai":
+        return run_crewai_flow(engine)
+    return engine.run_native()
 
 
 if __name__ == "__main__":
