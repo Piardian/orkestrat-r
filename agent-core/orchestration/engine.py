@@ -190,11 +190,11 @@ class GoalPipelineEngine:
         if not self.request.auto_apply:
             self._event("apply", "manual-gate", state)
             return state
-        if state == "READY_TO_APPLY":
+        if state in {"READY_TO_APPLY", "APPLYING"}:
             final = FinalReviewService(service=self.service, runtime_root=self.runtime_root)
             record, result = final.apply(goal_id, explicit_apply=True)
             self._applied = str(result.get("status", "")).upper() == "PASS" and record.status == "COMPLETED"
-            self._event("apply", "executed", record.status)
+            self._event("apply", "resumed" if state == "APPLYING" else "executed", record.status)
             return record.status
         self._event("apply", "skipped", state)
         return state
@@ -243,11 +243,13 @@ def resolve_openhands_python(explicit: str | None, core_dir: Path) -> str:
 def _next_action(state: str) -> str | None:
     mapping = {
         "READY_TO_APPLY": "Explicit user approval is required before applying the patch.",
+        "APPLYING": "Resume the persisted transactional apply; do not start a second apply.",
         "CODEX_REQUIRED": "Use the existing Codex/manual path for this high-complexity goal.",
         "BUILD_FAILED": "Inspect build.json/verification.json, then retry the OpenHands build.",
         "BUILDER_BLOCKED": "Resolve the builder preflight block, then retry.",
         "BUILDER_POLICY_VIOLATION": "Review unauthorized changes before retrying.",
         "BUILD_REJECTED": "Review final-review findings and rebuild.",
+        "POST_APPLY_VERIFICATION_FAILED": "The verified promotion was rolled back; inspect verification output before retrying.",
         "COMPLETED": None,
     }
     return mapping.get(state, f"Continue from state {state} using the existing goal state machine.")
