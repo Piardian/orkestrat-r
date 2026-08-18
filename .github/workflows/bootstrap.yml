@@ -1,0 +1,35 @@
+name: Bootstrap project
+
+on:
+  push:
+    paths:
+      - bootstrap.zip
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Import project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .bootstrap
+          mkdir .bootstrap
+          unzip -q bootstrap.zip -d .bootstrap
+          shopt -s dotglob nullglob
+          cp -a .bootstrap/ajan-ordusu/. .
+          rm -rf .bootstrap bootstrap.zip
+          rm -f .github/workflows/bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Import agent army project"
+          git push
