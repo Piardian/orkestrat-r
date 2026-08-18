@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
+import os
 
 from goal import GoalBuilderService, GoalService
+from goal.builder_policy import load_builder_policy
 
 
 def main() -> int:
@@ -16,7 +19,26 @@ def main() -> int:
     args = parser.parse_args()
 
     service = GoalService(base_dir=args.runtime_dir)
-    builder = GoalBuilderService(service=service, execution_mode=args.mode)
+    policy = load_builder_policy()
+    if args.mode:
+        policy = replace(policy, mode=args.mode)
+
+    workspace_mode = os.getenv("AGENT_ARMY_OPENHANDS_WORKSPACE", "docker").strip().lower()
+    adapter = None
+    if workspace_mode == "docker":
+        from goal.openhands_docker_adapter import DockerOpenHandsBuilderAdapter
+
+        adapter = DockerOpenHandsBuilderAdapter(policy)
+    elif workspace_mode != "local":
+        print(f"Unsupported AGENT_ARMY_OPENHANDS_WORKSPACE: {workspace_mode}")
+        return 2
+
+    builder = GoalBuilderService(
+        service=service,
+        execution_mode=args.mode,
+        policy=policy,
+        adapter=adapter,
+    )
 
     if args.dry_run and args.execute:
         print("Choose exactly one of --dry-run or --execute.")
@@ -25,7 +47,7 @@ def main() -> int:
     try:
         if args.dry_run or not args.execute:
             record, request = builder.dry_run(args.goal_id)
-            _print_dry_run(record.goal_id, request)
+            _print_dry_run(record.goal_id, request, workspace_mode)
             return 0
 
         record, request, result = builder.execute(args.goal_id)
@@ -44,6 +66,7 @@ def main() -> int:
     print(f"Goal: {record.goal_id}")
     print(f"State: {record.phase}")
     print(f"Mode: {request.mode}")
+    print(f"Workspace isolation: {workspace_mode}")
     print(f"Builder profile: {request.builder_profile}")
     print()
     print("Allowed files:")
@@ -71,16 +94,19 @@ def main() -> int:
     print(f"Retry exhausted: {'YES' if result.retry_exhausted else 'NO'}")
     print()
     print(f"Verification: {result.verification_status or 'N/A'}")
+    if result.verification_result and result.verification_result.get("sandbox"):
+        print(f"Verification sandbox: {result.verification_result['sandbox']}")
     print(f"Original repo modified: {'YES' if result.original_repo_modified else 'NO'}")
     print(f"Patch: {result.patch_path or 'N/A'}")
     print(f"NEXT: {record.status}")
     return 0
 
 
-def _print_dry_run(goal_id: str, request) -> None:
+def _print_dry_run(goal_id: str, request, workspace_mode: str) -> None:
     print("OPENHANDS BUILDER DRY-RUN\n")
     print(f"Goal: {goal_id}")
     print("OpenHands executed: NO")
+    print(f"Workspace isolation: {workspace_mode}")
     print("Allowed files:")
     for item in request.allowed_files:
         print(f"- {item}")
