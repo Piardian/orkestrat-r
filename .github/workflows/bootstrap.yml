@@ -18,14 +18,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat bootstrap.b64.part* > bootstrap.b64
-          base64 --decode bootstrap.b64 > bootstrap.zip
+          cat bootstrap.xz.b64.part* > bootstrap.xz.b64
+          base64 --decode bootstrap.xz.b64 > bootstrap.tar.xz
           rm -rf .bootstrap
           mkdir .bootstrap
-          unzip -q bootstrap.zip -d .bootstrap
+          tar -xJf bootstrap.tar.xz -C .bootstrap
           shopt -s dotglob nullglob
           cp -a .bootstrap/ajan-ordusu/. .
-          rm -rf .bootstrap bootstrap.zip bootstrap.b64 bootstrap.b64.part* bootstrap.ready
+          rm -rf .bootstrap bootstrap.tar.xz bootstrap.xz.b64 bootstrap.xz.b64.part* bootstrap.ready
           rm -f .github/workflows/bootstrap.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
