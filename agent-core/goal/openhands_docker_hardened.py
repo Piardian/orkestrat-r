@@ -16,7 +16,10 @@ _RUNTIME_DIR_CANDIDATES = (
 
 
 def _normalize_path(value: str) -> str:
-    return str(value or "").replace("\\", "/").lstrip("./")
+    normalized = str(value or "").replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
 
 
 def _tracked_paths(repo: str | Path) -> set[str]:
@@ -52,7 +55,7 @@ def runtime_exclude_patterns(target_repo: str | Path, allowed_files: list[str]) 
 
     if not any("__pycache__" in PurePosixPath(path).parts for path in protected):
         patterns.append("__pycache__/")
-    if not any(path.endswith(".pyc") for path in allowed):
+    if not any(path.endswith(".pyc") for path in protected):
         patterns.append("*.pyc")
     return tuple(patterns)
 
