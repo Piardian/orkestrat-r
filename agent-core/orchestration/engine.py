@@ -135,13 +135,35 @@ class GoalPipelineEngine:
         if self.request.execution_mode:
             command.extend(["--mode", self.request.execution_mode])
 
-        proc = subprocess.run(
-            command,
-            cwd=str(self.core_dir),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        timeout_seconds = max(60.0, float(os.getenv("AGENT_ARMY_BUILDER_TIMEOUT_SECONDS", "3600")))
+        try:
+            proc = subprocess.run(
+                command,
+                cwd=str(self.core_dir),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            try:
+                record = self.service.read_goal(goal_id)
+                if record.status.strip().upper() == "BUILDING":
+                    self.service.update_status(
+                        record,
+                        "BUILD_FAILED",
+                        phase="build-failed",
+                        note=f"builder process timed out after {timeout_seconds:.0f}s",
+                    )
+            except Exception:
+                pass
+            output = (exc.stderr or exc.stdout or "") if isinstance(exc.stderr or exc.stdout or "", str) else ""
+            raise PipelineStageError(
+                "openhands-build",
+                _clip(output) or f"OpenHands builder timed out after {timeout_seconds:.0f}s",
+                returncode=124,
+            ) from exc
+
         state = self._state(goal_id)
         if proc.returncode != 0 and state not in {
             "BUILD_FAILED",
