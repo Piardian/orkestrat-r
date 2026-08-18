@@ -7,11 +7,13 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from orchestration.temporal_flow import DurableGoalWorkflow, run_pipeline_stage
-from observability import init_sentry
+from observability import init_observability, observability_health
 
 
 async def main() -> None:
-    init_sentry()
+    os.environ.setdefault("AGENT_ARMY_OPENHANDS_WORKSPACE", "docker")
+    os.environ.setdefault("AGENT_ARMY_VERIFICATION_SANDBOX", "docker")
+    init_observability()
     client = await Client.connect(
         os.getenv("TEMPORAL_ADDRESS", "localhost:7233"),
         namespace=os.getenv("TEMPORAL_NAMESPACE", "default"),
@@ -23,6 +25,7 @@ async def main() -> None:
         activities=[run_pipeline_stage],
     )
     print(f"Temporal worker ready: {os.getenv('TEMPORAL_TASK_QUEUE', 'agent-army')}")
+    print(f"Observability health: {observability_health()}")
     await worker.run()
 
 

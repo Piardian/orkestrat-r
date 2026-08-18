@@ -1,0 +1,36 @@
+model_list:
+  - model_name: gemini-user-a
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: os.environ/GEMINI_USER_A_KEY
+
+  - model_name: gemini-user-b
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: os.environ/GEMINI_USER_B_KEY
+
+  - model_name: gemini-user-c
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: os.environ/GEMINI_USER_C_KEY
+
+  - model_name: gemini-user-d
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: os.environ/GEMINI_USER_D_KEY
+
+  - model_name: gemini-commander-main
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: os.environ/GEMINI_USER_A_KEY
+
+  - model_name: nemotron-main
+    litellm_params:
+      model: openai/nvidia/nemotron-3-super-120b-a12b
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: os.environ/NVIDIA_API_KEY
+
+litellm_settings:
+  num_retries: 2
+  request_timeout: 90
+  drop_params: true

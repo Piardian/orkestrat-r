@@ -1,0 +1,83 @@
+services:
+  agent-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: agent_army
+      POSTGRES_PASSWORD: agent_army
+      POSTGRES_DB: agent_army
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - agent-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_army -d agent_army"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  temporal-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  temporal:
+    image: temporalio/auto-setup:1.29.1
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgres
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
+    ports:
+      - "127.0.0.1:7233:7233"
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  litellm:
+    image: docker.litellm.ai/berriai/litellm:main-latest
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml:ro
+    environment:
+      GEMINI_USER_A_KEY: ${GEMINI_USER_A_KEY:-}
+      GEMINI_USER_B_KEY: ${GEMINI_USER_B_KEY:-}
+      GEMINI_USER_C_KEY: ${GEMINI_USER_C_KEY:-}
+      GEMINI_USER_D_KEY: ${GEMINI_USER_D_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+    ports:
+      - "127.0.0.1:4000:4000"
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.157.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:13133:13133"
+
+volumes:
+  agent-postgres-data:
+  temporal-postgres-data:
