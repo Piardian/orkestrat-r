@@ -1,4 +1,4 @@
--r requirements-crewai.txt
+-r requirements.txt
 # Durable workflow execution
 temporalio>=1.15,<2
 # LLM/agent observability (Python SDK v4)
