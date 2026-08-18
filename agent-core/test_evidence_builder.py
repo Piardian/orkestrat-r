@@ -4,8 +4,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from evidence.builder import EvidenceBuilder
+from evidence.search import rg_files, search_files
 
 
 class EvidenceBuilderTests(unittest.TestCase):
@@ -45,6 +47,44 @@ class EvidenceBuilderTests(unittest.TestCase):
             plan = {"task": "calculator.py .env token", "search_terms": ["calculator.py", ".env", "token"], "max_files": 5, "max_lines_per_file": 50}
             packet = EvidenceBuilder(repo, plan).build()
             self.assertNotIn(".env", [item["path"] for item in packet["evidence"]])
+
+    def test_rg_permission_error_uses_git_file_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._init_repo(Path(tmp) / "repo")
+            real_run = subprocess.run
+
+            def run_with_blocked_rg(args, *pargs, **kwargs):
+                if isinstance(args, (list, tuple)) and args and str(args[0]).lower() == "rg":
+                    raise PermissionError("rg blocked by Windows policy")
+                return real_run(args, *pargs, **kwargs)
+
+            with patch("evidence.search.subprocess.run", side_effect=run_with_blocked_rg):
+                files = rg_files(repo, 10)
+                result = search_files(repo, "return a + b", 10)
+
+            self.assertIn("calculator.py", files)
+            self.assertIn("calculator.py", result["files"])
+
+    def test_git_search_fallback_does_not_truncate_candidates_before_matching(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._init_repo(Path(tmp) / "repo")
+            for index in range(80):
+                (repo / f"aaa_{index:03d}.py").write_text(f"VALUE = {index}\n", encoding="utf-8")
+            (repo / "zz_target.py").write_text("UNIQUE_TARGET_MARKER = True\n", encoding="utf-8")
+            self._git(repo, "add", ".")
+            self._git(repo, "commit", "-m", "large fallback fixture")
+            real_run = subprocess.run
+
+            def run_with_blocked_rg(args, *pargs, **kwargs):
+                if isinstance(args, (list, tuple)) and args and str(args[0]).lower() == "rg":
+                    raise PermissionError("rg blocked by Windows policy")
+                return real_run(args, *pargs, **kwargs)
+
+            with patch("evidence.search.subprocess.run", side_effect=run_with_blocked_rg):
+                result = search_files(repo, "UNIQUE_TARGET_MARKER", 5)
+
+            self.assertEqual(result["files"], ["zz_target.py"])
+            self.assertFalse(result["truncated"])
 
     def _init_repo(self, path: Path) -> Path:
         path.mkdir(parents=True, exist_ok=True)
