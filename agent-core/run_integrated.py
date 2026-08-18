@@ -7,7 +7,7 @@ import json
 import os
 import sys
 
-from observability import capture_exception, init_sentry, observe_run
+from observability import capture_exception, init_observability, observe_run
 from orchestration import (
     CrewAIUnavailableError,
     GoalPipelineEngine,
@@ -46,6 +46,11 @@ def main() -> int:
     if args.task and not args.repo:
         parser.error("--repo is required with --task")
 
+    # Integrated runs default to isolated OpenHands + verification. Unit tests and
+    # low-level development entry points can explicitly opt back into local mode.
+    os.environ.setdefault("AGENT_ARMY_OPENHANDS_WORKSPACE", "docker")
+    os.environ.setdefault("AGENT_ARMY_VERIFICATION_SANDBOX", "docker")
+
     request = PipelineRequest(
         repo=args.repo,
         task=args.task,
@@ -57,7 +62,7 @@ def main() -> int:
         auto_apply=args.auto_apply,
     )
 
-    init_sentry()
+    init_observability()
     metadata = {
         "orchestrator": args.orchestrator,
         "auto_apply": args.auto_apply,
@@ -88,7 +93,7 @@ def main() -> int:
         print(f"Goal: {result.goal_id}")
         print(f"State: {result.state}")
         print("Orchestrator:", args.orchestrator)
-        print("Builder: OpenHands")
+        print("Builder: OpenHands (Docker isolated by default)")
         print("OpenClaw entry: supported via openclaw/skills/agent-army")
         print(f"Applied: {'YES' if result.applied else 'NO'}")
         if result.next_action:
