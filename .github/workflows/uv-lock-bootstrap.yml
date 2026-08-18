@@ -28,7 +28,7 @@ jobs:
           uv lock
       - name: Commit lock only when changed
         run: |
-          if git diff --quiet -- agent-core/uv.lock; then
+          if [ -z "$(git status --porcelain -- agent-core/uv.lock)" ]; then
             echo "uv.lock already current"
             exit 0
           fi
