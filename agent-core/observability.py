@@ -41,20 +41,30 @@ def capture_exception(exc: BaseException, **context: Any) -> None:
 
 @contextmanager
 def observe_run(name: str, *, metadata: dict[str, Any] | None = None) -> Iterator[None]:
-    if not _truthy("AGENT_ARMY_LANGFUSE_ENABLED"):
-        with nullcontext():
-            yield
-        return
+    client = None
+    context = nullcontext(None)
+
+    if _truthy("AGENT_ARMY_LANGFUSE_ENABLED"):
+        try:
+            from langfuse import get_client
+
+            client = get_client()
+            context = client.start_as_current_observation(as_type="agent", name=name)
+        except Exception:
+            client = None
+            context = nullcontext(None)
 
     try:
-        from langfuse import get_client
-
-        client = get_client()
-        with client.start_as_current_observation(as_type="agent", name=name) as observation:
-            if metadata:
-                observation.update(metadata=metadata)
+        with context as observation:
+            if observation is not None and metadata:
+                try:
+                    observation.update(metadata=metadata)
+                except Exception:
+                    pass
             yield
-        client.flush()
-    except Exception:
-        # Observability must never make the agent pipeline fail.
-        yield
+    finally:
+        if client is not None:
+            try:
+                client.flush()
+            except Exception:
+                pass
