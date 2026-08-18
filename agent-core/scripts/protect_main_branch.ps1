@@ -29,6 +29,10 @@ try {
 
     $Checks = @(
         "full-regression",
+        "postgres-safety",
+        "dependency-lock",
+        "crewai-contract",
+        "openhands-contract",
         "reliability-smoke (ubuntu-latest, 3.11)",
         "reliability-smoke (ubuntu-latest, 3.12)",
         "reliability-smoke (windows-latest, 3.11)",
@@ -63,7 +67,7 @@ try {
     $Uri = "https://api.github.com/repos/$OwnerEscaped/$RepoEscaped/branches/$BranchEscaped/protection"
     $Result = Invoke-RestMethod -Uri $Uri -Headers $Headers -Method Put -ContentType "application/json" -Body $Body
 
-    Write-Host "" 
+    Write-Host ""
     Write-Host "MAIN BRANCH KORUMASI AKTIF" -ForegroundColor Green
     Write-Host "Repo: $Owner/$Repo"
     Write-Host "Branch: $Branch"
@@ -74,7 +78,7 @@ try {
     Write-Host "Required checks:"
     foreach ($Check in $Checks) { Write-Host "  - $Check" }
 } catch {
-    Write-Host "" 
+    Write-Host ""
     Write-Host "Branch protection uygulanamadi." -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
     exit 1
