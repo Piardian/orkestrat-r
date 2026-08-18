@@ -1,3 +1,5 @@
 openhands-sdk==1.42.1
 openhands-tools==1.42.1
+openhands-workspace==1.42.1
+openhands-agent-server==1.42.1
 litellm==1.96.2
