@@ -9,6 +9,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from goal.openhands_docker_hardened import runtime_exclude_patterns
 from goal.service import GoalService
 from goal.store import GoalConcurrencyError, GoalStore
 from goal.verification_sandbox import run_docker_verification_suite
@@ -124,6 +125,62 @@ class ProductionSafetyStackTests(unittest.TestCase):
                 check=True,
             ).stdout
             self.assertNotIn(str(workspace), listing)
+
+    def test_openhands_runtime_metadata_is_ignored_by_staging_git(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self._repo(root)
+            patterns = runtime_exclude_patterns(repo, ["app.py"])
+            self.assertIn("conversations/", patterns)
+            self.assertIn("bash_events/", patterns)
+            self.assertIn("__pycache__/", patterns)
+            self.assertIn("*.pyc", patterns)
+
+            exclude_raw = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "--git-path", "info/exclude"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            exclude_path = Path(exclude_raw)
+            if not exclude_path.is_absolute():
+                exclude_path = repo / exclude_path
+            with exclude_path.open("a", encoding="utf-8") as handle:
+                handle.write("\n" + "\n".join(patterns) + "\n")
+
+            (repo / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+            for relative in (
+                ".openhands/state.json",
+                "conversations/session.json",
+                "bash_events/event.json",
+                "__pycache__/app.cpython-313.pyc",
+            ):
+                path = repo / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("runtime\n", encoding="utf-8")
+
+            subprocess.run(["git", "-C", str(repo), "add", "-N", "."], check=True)
+            changed = subprocess.run(
+                ["git", "-C", str(repo), "diff", "--name-only", "--diff-filter=ACDMRTUXB", "--", "."],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+            self.assertEqual(changed, ["app.py"])
+
+    def test_openhands_runtime_filter_does_not_hide_legitimate_project_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = self._repo(root)
+            conversations = repo / "conversations"
+            conversations.mkdir()
+            (conversations / "project.json").write_text("{}\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "conversations/project.json"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "track project conversations"], check=True)
+
+            patterns = runtime_exclude_patterns(repo, ["app.py"])
+            self.assertNotIn("conversations/", patterns)
+            self.assertIn("bash_events/", patterns)
 
     def test_observability_health_is_explicit_when_disabled(self):
         env = {
