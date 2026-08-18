@@ -28,7 +28,7 @@ jobs:
       - name: Compile source
         run: python -m compileall -q .
       - name: Reliability and production-safety smoke tests
-        run: python -m unittest test_reliability_stack.py test_production_safety_stack.py test_transactional_apply.py -v
+        run: python -m unittest test_reliability_stack.py test_production_safety_stack.py test_transactional_apply.py test_evidence_builder.py -v
 
   full-regression:
     runs-on: ubuntu-latest
