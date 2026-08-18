@@ -36,9 +36,9 @@ def main() -> int:
         # agent-server tag unless CI supplies a commit-specific image.
         os.environ.setdefault("AGENT_ARMY_OPENHANDS_SERVER_IMAGE", "ghcr.io/openhands/agent-server:latest-python")
         os.environ.setdefault("AGENT_ARMY_VERIFICATION_IMAGE", "ghcr.io/openhands/agent-server:latest-python")
-        from goal.openhands_docker_adapter import DockerOpenHandsBuilderAdapter
+        from goal.openhands_docker_hardened import HardenedDockerOpenHandsBuilderAdapter
 
-        adapter = DockerOpenHandsBuilderAdapter(policy)
+        adapter = HardenedDockerOpenHandsBuilderAdapter(policy)
     elif workspace_mode != "local":
         print(f"Unsupported AGENT_ARMY_OPENHANDS_WORKSPACE: {workspace_mode}")
         return 2
