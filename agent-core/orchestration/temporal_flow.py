@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+
+
+async def _run_with_heartbeat(stage: str, operation: Callable[[], Any]) -> Any:
+    """Run blocking pipeline code in a worker thread while heartbeating Temporal."""
+    task = asyncio.create_task(asyncio.to_thread(operation))
+    while not task.done():
+        activity.heartbeat({"stage": stage})
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=15.0)
+        except asyncio.TimeoutError:
+            continue
+    return await task
 
 
 @activity.defn
@@ -14,6 +28,7 @@ async def run_pipeline_stage(payload: dict[str, Any]) -> dict[str, Any]:
 
     stage = str(payload["stage"])
     request_data = dict(payload["request"])
+    request_key = str(request_data.pop("_request_id", "") or "").strip()
     goal_id = payload.get("goal_id")
     if goal_id:
         request_data["goal_id"] = goal_id
@@ -23,7 +38,19 @@ async def run_pipeline_stage(payload: dict[str, Any]) -> dict[str, Any]:
     engine = GoalPipelineEngine(PipelineRequest(**request_data))
 
     if stage == "intake":
-        goal_id = engine.create_or_resume()
+        def _intake() -> str:
+            if engine.request.goal_id:
+                return engine.create_or_resume()
+            if not engine.request.repo or not engine.request.task:
+                raise ValueError("repo and task are required for Temporal intake")
+            record = engine.service.create_goal(
+                engine.request.task,
+                Path(engine.request.repo),
+                idempotency_key=request_key or None,
+            )
+            return record.goal_id
+
+        goal_id = await _run_with_heartbeat(stage, _intake)
         return {"goal_id": goal_id, "state": engine.service.read_goal(goal_id).status}
 
     if not goal_id:
@@ -42,17 +69,22 @@ async def run_pipeline_stage(payload: dict[str, Any]) -> dict[str, Any]:
     if stage not in operations:
         raise ValueError(f"unknown stage: {stage}")
 
-    state = operations[stage](goal_id)
+    def _locked_stage() -> str:
+        with engine.service.store.goal_lock(goal_id):
+            # Re-read happens inside each engine stage, after the lock is acquired.
+            return operations[stage](goal_id)
+
+    state = await _run_with_heartbeat(stage, _locked_stage)
     return {"goal_id": goal_id, "state": state}
 
 
 @workflow.defn
 class DurableGoalWorkflow:
-    """Temporal wrapper around the existing idempotent goal state machine.
+    """Temporal wrapper around the existing deterministic goal state machine.
 
-    Each durable activity runs one existing stage. If Temporal retries a stage,
-    GoalPipelineEngine re-reads the persisted goal state and skips stages that
-    already completed, preventing duplicate code application.
+    Intake is keyed by a stable request id, every long-running activity heartbeats,
+    and PostgreSQL-backed deployments acquire a per-goal advisory lock before a
+    stage executes. Activity retries therefore resume instead of duplicating work.
     """
 
     @workflow.run
@@ -65,6 +97,7 @@ class DurableGoalWorkflow:
         )
         common = {
             "start_to_close_timeout": timedelta(hours=2),
+            "heartbeat_timeout": timedelta(minutes=1),
             "retry_policy": retry,
         }
 
@@ -98,10 +131,19 @@ async def run_temporal_pipeline(request: dict[str, Any]) -> dict[str, Any]:
     namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
     task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "agent-army")
     client = await Client.connect(address, namespace=namespace)
-    workflow_id = request.get("goal_id") or f"agent-army-{uuid.uuid4()}"
+
+    durable_request = dict(request)
+    request_id = str(
+        durable_request.get("_request_id")
+        or os.getenv("AGENT_ARMY_REQUEST_ID", "").strip()
+        or uuid.uuid4().hex
+    )
+    durable_request["_request_id"] = request_id
+    workflow_id = durable_request.get("goal_id") or f"agent-army-{request_id}"
+
     return await client.execute_workflow(
         DurableGoalWorkflow.run,
-        request,
+        durable_request,
         id=workflow_id,
         task_queue=task_queue,
     )
