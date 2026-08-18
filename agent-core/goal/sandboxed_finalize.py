@@ -18,6 +18,10 @@ class SandboxedFinalReviewService(BaseFinalReviewService):
                 commands,
                 workspace,
                 timeout=float(os.getenv("AGENT_ARMY_FINAL_VERIFY_TIMEOUT_SECONDS", "300")),
+                image=(
+                    os.getenv("AGENT_ARMY_VERIFICATION_IMAGE", "").strip()
+                    or "ghcr.io/openhands/agent-server:latest-python"
+                ),
             )
         if mode not in {"host", "local"}:
             raise ValueError(f"Unsupported AGENT_ARMY_VERIFICATION_SANDBOX: {mode}")
