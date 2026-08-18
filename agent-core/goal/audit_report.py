@@ -85,7 +85,6 @@ def generate_audit_report(
     return synthesizer.synthesize(
         goal_id=goal_id,
         goal_text=goal_text,
-        repo_path=repo_path,
         plan_dict=plan_dict,
         evidence_packet=evidence_packet,
         analyst_results=analyst_results,
