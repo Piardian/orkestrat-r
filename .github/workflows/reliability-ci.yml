@@ -133,8 +133,8 @@ jobs:
           cache-dependency-path: agent-core/requirements-openhands.txt
       - name: Install isolated OpenHands environment
         run: python -m pip install -r requirements-openhands.txt
-      - name: Verify DockerWorkspace package contract
-        run: python -c "from openhands.workspace import DockerWorkspace; from goal.openhands_docker_adapter import DockerOpenHandsBuilderAdapter; print('OpenHands Docker contract OK')"
+      - name: Verify OpenHands runtime contract
+        run: python -c "import psycopg; from openhands.workspace import DockerWorkspace; from goal.openhands_docker_adapter import DockerOpenHandsBuilderAdapter; from goal.store import PostgresGoalStore; print('OpenHands Docker + PostgreSQL runtime contract OK')"
       - name: Exercise networkless Docker verification
         run: |
           mkdir -p /tmp/agent-army-sandbox-smoke
