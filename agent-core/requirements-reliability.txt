@@ -5,3 +5,6 @@ temporalio>=1.15,<2
 langfuse>=4,<5
 # Runtime exception/performance monitoring
 sentry-sdk>=2,<3
+# Vendor-neutral telemetry pipeline
+opentelemetry-sdk>=1.30,<2
+opentelemetry-exporter-otlp-proto-http>=1.30,<2
