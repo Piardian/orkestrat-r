@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from evidence.builder import EvidenceBuilder
 from goal import GoalMetricsService, GoalService, GoalStatusService
@@ -46,9 +47,9 @@ class GoalProductionHardeningMatrixTests(unittest.TestCase):
                 subprocess.run(["git", "-C", str(repo), "worktree", "add", "--detach", "--force", str(ws), "HEAD"], check=True, capture_output=True)
                 (ws / f"module_{i}.py").write_text(f"def func_{i}(): return {i}\n", encoding="utf-8")
                 subprocess.run(["git", "-C", str(ws), "add", "-N", f"module_{i}.py"], check=True, capture_output=True)
-                patch = subprocess.run(["git", "-C", str(ws), "diff", "--binary", "--", f"module_{i}.py"], capture_output=True, text=True, check=True).stdout
+                patch_text = subprocess.run(["git", "-C", str(ws), "diff", "--binary", "--", f"module_{i}.py"], capture_output=True, text=True, check=True).stdout
 
-                service.store.save_text(built.goal_id, "build.patch", patch)
+                service.store.save_text(built.goal_id, "build.patch", patch_text)
                 service.store.save_plan(built.goal_id, "build_request.json", {
                     "goal_id": built.goal_id,
                     "target_repo": str(repo),
@@ -104,13 +105,13 @@ class GoalProductionHardeningMatrixTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(repo), "worktree", "add", "--detach", "--force", str(ws), "HEAD"], check=True, capture_output=True)
             (ws / "calc.py").write_text("def multiply(a, b):\n    return 6  # CHEAT / REWARD HACK\n", encoding="utf-8")
             subprocess.run(["git", "-C", str(ws), "add", "-N", "calc.py"], check=True, capture_output=True)
-            patch = subprocess.run(["git", "-C", str(ws), "diff", "--binary", "--", "calc.py"], capture_output=True, text=True, check=True).stdout
+            patch_text = subprocess.run(["git", "-C", str(ws), "diff", "--binary", "--", "calc.py"], capture_output=True, text=True, check=True).stdout
 
             public_verify = f"{sys.executable} -c \"import calc; assert calc.multiply(2, 3) == 6\""
             # Hidden test checks generalized properties with randomized inputs
             hidden_verify = f"{sys.executable} -c \"import calc; assert calc.multiply(4, 5) == 20 and calc.multiply(7, 8) == 56\""
 
-            service.store.save_text(built.goal_id, "build.patch", patch)
+            service.store.save_text(built.goal_id, "build.patch", patch_text)
             service.store.save_plan(built.goal_id, "build_request.json", {
                 "goal_id": built.goal_id,
                 "target_repo": str(repo),
@@ -183,36 +184,56 @@ class GoalProductionHardeningMatrixTests(unittest.TestCase):
             service = GoalService(base_dir=root / "runtime" / "goals")
             resume_svc = GoalResumeService(service=service, runtime_root=root / "runtime")
 
-            # 1. Create and crash at PLANNING
-            rec = service.create_goal("Resilient test", repo)
-            service.update_status(rec, "PLANNING", phase="planning", note="simulated power loss")
+            def fake_plan(planner, goal_id: str, commander_profile=None):
+                current = planner.service.read_goal(goal_id)
+                planning = planner.service.update_status(current, "PLANNING", phase="planning", note="fake planner")
+                planned = planner.service.update_status(planning, "PLANNED", phase="planned", note="fake planner complete")
+                return planned, None
 
-            # Resume recovers from PLANNING to PLANNED
-            res = resume_svc.resume(rec.goal_id, execute=True)
-            self.assertTrue(res.executed)
-            self.assertEqual(res.state, "PLANNED")
+            def fake_review(reviewer, goal_id: str):
+                current = reviewer.service.read_goal(goal_id)
+                reviewing = reviewer.service.update_status(current, "REVIEWING", phase="reviewing", note="fake review")
+                approved = reviewer.service.update_status(reviewing, "APPROVED", phase="approved", note="fake review complete")
+                return approved, None
 
-            # 2. Crash at REVIEWING
-            planned_rec = service.read_goal(rec.goal_id)
-            service.update_status(planned_rec, "REVIEWING", phase="reviewing", note="simulated network drop")
+            def fake_complexity(assessor, goal_id: str, force: bool = False):
+                current = assessor.service.read_goal(goal_id)
+                assessing = assessor.service.update_status(current, "COMPLEXITY_ASSESSING", phase="complexity-assessing", note="fake complexity")
+                ready = assessor.service.update_status(assessing, "READY_FOR_OPENHANDS", phase="complexity-assessed", note="fake complexity complete")
+                return ready, {"severity": "EASY", "recommended_executor": "openhands"}
 
-            # Resume recovers from REVIEWING to a valid review outcome (APPROVED / REVIEW_UNKNOWN / REVISION_REQUIRED)
-            res2 = resume_svc.resume(rec.goal_id, execute=True)
-            self.assertTrue(res2.executed)
-            self.assertIn(res2.state, {"APPROVED", "REVIEW_UNKNOWN", "REVISION_REQUIRED"})
+            with (
+                patch("goal.resume_service.GoalPlanner.plan_goal", autospec=True, side_effect=fake_plan) as plan_mock,
+                patch("goal.resume_service.GoalReviewService.review_goal", autospec=True, side_effect=fake_review) as review_mock,
+                patch("goal.resume_service.GoalComplexityService.assess_goal", autospec=True, side_effect=fake_complexity) as complexity_mock,
+            ):
+                # 1. Create and crash at PLANNING
+                rec = service.create_goal("Resilient test", repo)
+                service.update_status(rec, "PLANNING", phase="planning", note="simulated power loss")
 
-            # If not approved, approve it so complexity stage can be tested
-            if res2.state != "APPROVED":
-                service.update_status(service.read_goal(rec.goal_id), "APPROVED", phase="approved", note="force approve for test")
+                res = resume_svc.resume(rec.goal_id, execute=True)
+                self.assertTrue(res.executed)
+                self.assertEqual(res.state, "PLANNED")
 
-            # 3. Crash at COMPLEXITY_ASSESSING
-            approved_rec = service.read_goal(rec.goal_id)
-            service.update_status(approved_rec, "COMPLEXITY_ASSESSING", phase="complexity-assessing", note="simulated timeout")
+                # 2. Crash at REVIEWING
+                planned_rec = service.read_goal(rec.goal_id)
+                service.update_status(planned_rec, "REVIEWING", phase="reviewing", note="simulated network drop")
 
-            # Resume recovers from COMPLEXITY_ASSESSING to READY_FOR_OPENHANDS / CODEX
-            res3 = resume_svc.resume(rec.goal_id, execute=True)
-            self.assertTrue(res3.executed)
-            self.assertIn(res3.state, {"READY_FOR_OPENHANDS", "CODEX_REQUIRED"})
+                res2 = resume_svc.resume(rec.goal_id, execute=True)
+                self.assertTrue(res2.executed)
+                self.assertEqual(res2.state, "APPROVED")
+
+                # 3. Crash at COMPLEXITY_ASSESSING
+                approved_rec = service.read_goal(rec.goal_id)
+                service.update_status(approved_rec, "COMPLEXITY_ASSESSING", phase="complexity-assessing", note="simulated timeout")
+
+                res3 = resume_svc.resume(rec.goal_id, execute=True)
+                self.assertTrue(res3.executed)
+                self.assertEqual(res3.state, "READY_FOR_OPENHANDS")
+
+                self.assertEqual(plan_mock.call_count, 1)
+                self.assertEqual(review_mock.call_count, 1)
+                self.assertEqual(complexity_mock.call_count, 1)
 
     def _init_fixture_git_repo(self, path: Path) -> Path:
         path.mkdir(parents=True, exist_ok=True)
