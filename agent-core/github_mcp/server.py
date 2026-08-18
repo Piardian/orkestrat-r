@@ -6,14 +6,14 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
-from github_mcp.github_api import create_repository_api, whoami
+from github_mcp.github_api import create_repository_api, protect_branch_api, whoami
 
 mcp = MCPServer(
     "Ajan Ordusu GitHub",
     instructions=(
         "Safely manage GitHub repositories for the authenticated user. "
-        "Only repository identity lookup and repository creation are exposed; "
-        "repository deletion is intentionally not available."
+        "Repository deletion and branch-unprotection are intentionally not available. "
+        "The branch protection tool only strengthens protection."
     ),
 )
 
@@ -58,6 +58,29 @@ def create_repository(
     Private repositories are the default. Public creation is separately gated.
     """
     return create_repository_api(name, private, description, auto_init)
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Protect GitHub branch",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def protect_branch(
+    repo_name: str,
+    branch: str = "main",
+    required_checks: list[str] | None = None,
+) -> dict[str, Any]:
+    """Protect a branch with PR-only changes and required CI checks.
+
+    Defaults require the Ajan Ordusu full regression and Windows/Linux reliability
+    matrix. Administrators are also subject to the rule. Force pushes and branch
+    deletion are blocked. This server intentionally exposes no unprotect action.
+    """
+    return protect_branch_api(repo_name, branch, required_checks)
 
 
 def main() -> None:
