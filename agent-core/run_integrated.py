@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import asdict
 import json
 import os
+from pathlib import Path
 import sys
 
 from observability import capture_exception, init_observability, observe_run
@@ -16,6 +17,7 @@ from orchestration import (
     PipelineStageError,
     run_crewai_flow,
 )
+from production_preflight import ProductionPreflightError, run_production_preflight
 
 
 def main() -> int:
@@ -51,6 +53,17 @@ def main() -> int:
     os.environ.setdefault("AGENT_ARMY_OPENHANDS_WORKSPACE", "docker")
     os.environ.setdefault("AGENT_ARMY_VERIFICATION_SANDBOX", "docker")
 
+    core_dir = Path(__file__).resolve().parent
+    try:
+        preflight = run_production_preflight(
+            orchestrator=args.orchestrator,
+            core_dir=core_dir,
+            openhands_python=args.openhands_python,
+        )
+    except ProductionPreflightError as exc:
+        print(f"PREFLIGHT_FAILED: {exc}", file=sys.stderr)
+        return 3
+
     request = PipelineRequest(
         repo=args.repo,
         task=args.task,
@@ -67,6 +80,7 @@ def main() -> int:
         "orchestrator": args.orchestrator,
         "auto_apply": args.auto_apply,
         "resume": bool(args.goal_id),
+        "preflight": preflight.get("preflight", "unknown"),
     }
 
     try:

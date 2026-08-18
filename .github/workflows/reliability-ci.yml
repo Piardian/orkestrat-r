@@ -28,7 +28,7 @@ jobs:
       - name: Compile source
         run: python -m compileall -q .
       - name: Reliability and production-safety smoke tests
-        run: python -m unittest test_reliability_stack.py test_production_safety_stack.py -v
+        run: python -m unittest test_reliability_stack.py test_production_safety_stack.py test_transactional_apply.py -v
 
   full-regression:
     runs-on: ubuntu-latest
@@ -49,6 +49,7 @@ jobs:
           AGENT_ARMY_STATE_BACKEND: file
           AGENT_ARMY_VERIFICATION_SANDBOX: host
           AGENT_ARMY_OPENHANDS_WORKSPACE: local
+          AGENT_ARMY_TEMPORAL_REQUIRE_POSTGRES: 'false'
         run: python -m unittest discover -v
 
   postgres-safety:
@@ -83,6 +84,7 @@ jobs:
         env:
           AGENT_ARMY_DATABASE_URL: postgresql://agent_army:agent_army@127.0.0.1:5432/agent_army
           AGENT_ARMY_STATE_BACKEND: postgres
+          AGENT_ARMY_TEMPORAL_REQUIRE_POSTGRES: 'true'
         run: python -m unittest test_postgres_safety.py -v
 
   dependency-lock:

@@ -2,11 +2,40 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+import os
 from pathlib import Path
 from typing import Any, Callable
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+
+
+def _truthy(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def require_temporal_postgres() -> None:
+    """Fail closed when durable execution is configured without durable state.
+
+    Temporal activity retries are only safe across worker/process boundaries when
+    all workers share the PostgreSQL goal source-of-truth. Development can opt out
+    explicitly with AGENT_ARMY_TEMPORAL_REQUIRE_POSTGRES=false.
+    """
+
+    if not _truthy(os.getenv("AGENT_ARMY_TEMPORAL_REQUIRE_POSTGRES"), default=True):
+        return
+    backend = os.getenv("AGENT_ARMY_STATE_BACKEND", "auto").strip().lower()
+    database_url = os.getenv("AGENT_ARMY_DATABASE_URL", "").strip() or os.getenv("DATABASE_URL", "").strip()
+    if backend in {"file", "filesystem"}:
+        raise RuntimeError("Temporal production mode requires PostgreSQL; filesystem state backend is not allowed.")
+    if backend not in {"auto", "postgres"}:
+        raise RuntimeError(f"Temporal production mode does not support state backend: {backend}")
+    if not database_url:
+        raise RuntimeError(
+            "Temporal production mode requires AGENT_ARMY_DATABASE_URL (or DATABASE_URL) so retries share durable state."
+        )
 
 
 async def _run_with_heartbeat(stage: str, operation: Callable[[], Any]) -> Any:
@@ -24,6 +53,7 @@ async def _run_with_heartbeat(stage: str, operation: Callable[[], Any]) -> Any:
 @activity.defn
 async def run_pipeline_stage(payload: dict[str, Any]) -> dict[str, Any]:
     # Imports stay inside the activity so Temporal workflow sandbox remains deterministic.
+    require_temporal_postgres()
     from orchestration.engine import GoalPipelineEngine, PipelineRequest
 
     stage = str(payload["stage"])
@@ -123,10 +153,10 @@ class DurableGoalWorkflow:
 
 
 async def run_temporal_pipeline(request: dict[str, Any]) -> dict[str, Any]:
-    import os
     import uuid
     from temporalio.client import Client
 
+    require_temporal_postgres()
     address = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
     namespace = os.getenv("TEMPORAL_NAMESPACE", "default")
     task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "agent-army")
