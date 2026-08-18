@@ -55,7 +55,7 @@ services:
       - "127.0.0.1:8080:8080"
 
   litellm:
-    image: docker.litellm.ai/berriai/litellm:main-latest
+    image: ghcr.io/berriai/litellm:v1.94.0
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     volumes:
       - ./litellm_config.yaml:/app/config.yaml:ro
@@ -65,6 +65,7 @@ services:
       GEMINI_USER_C_KEY: ${GEMINI_USER_C_KEY:-}
       GEMINI_USER_D_KEY: ${GEMINI_USER_D_KEY:-}
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      LITELLM_MASTER_KEY: ${AGENT_ARMY_LITELLM_API_KEY:-local-agent-army}
     ports:
       - "127.0.0.1:4000:4000"
 
