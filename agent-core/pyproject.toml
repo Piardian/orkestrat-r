@@ -21,11 +21,11 @@ crewai = [
   "crewai>=1.15,<2",
 ]
 openhands = [
-  "openhands-sdk==1.42.1",
-  "openhands-tools==1.42.1",
-  "openhands-workspace==1.42.1",
+  "openhands-sdk==1.42.1; python_version >= '3.12'",
+  "openhands-tools==1.42.1; python_version >= '3.12'",
+  "openhands-workspace==1.42.1; python_version >= '3.12'",
   "openhands-agent-server==1.42.1; python_version >= '3.12'",
-  "litellm==1.96.2",
+  "litellm==1.96.2; python_version >= '3.12'",
 ]
 
 [tool.uv]
