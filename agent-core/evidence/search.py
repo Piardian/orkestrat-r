@@ -113,6 +113,61 @@ def _rank_file(rel_str: str) -> int:
     return 10
 
 
+def _filter_candidates(repo: Path, lines: list[str], active_excludes: list[str]) -> list[str]:
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for raw in lines:
+        line = str(raw).strip().replace("\\", "/")
+        if not line or line in seen:
+            continue
+        seen.add(line)
+        parts = tuple(part for part in line.split("/") if part)
+        if _is_excluded_path(parts, active_excludes) or is_secret_path(line):
+            continue
+        if any(fnmatch.fnmatch(Path(line).name.lower(), glob.lower()) for glob in DEFAULT_FILE_GLOBS):
+            continue
+        if not (repo / line).is_file():
+            continue
+        filtered.append(line)
+    filtered.sort(key=lambda p: (_rank_file(p), p))
+    return filtered
+
+
+def _git_files_fallback(
+    repo: Path,
+    max_results: int | None,
+    excludes: list[str] | None = None,
+) -> list[str] | None:
+    """List repository files through Git when ripgrep cannot be executed.
+
+    ``git ls-files`` is substantially cheaper than a recursive Python walk on
+    large repositories and is available anywhere the goal pipeline can perform
+    its normal Git safety checks. Tracked and non-ignored untracked files are
+    included so the fallback remains useful during local development.
+    """
+
+    active_excludes = excludes or DEFAULT_EXCLUDES
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--"],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            shell=False,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+
+    filtered = _filter_candidates(repo, completed.stdout.split("\0"), active_excludes)
+    if max_results is None:
+        return filtered
+    return filtered[:max_results]
+
+
 def rg_files(repo: Path, max_results: int, excludes: list[str] | None = None) -> list[str]:
     active_excludes = excludes or DEFAULT_EXCLUDES
     args = ["rg", "--files"]
@@ -123,16 +178,11 @@ def rg_files(repo: Path, max_results: int, excludes: list[str] | None = None) ->
     try:
         completed = subprocess.run(args, cwd=repo, text=True, capture_output=True, timeout=5, shell=False, stdin=subprocess.DEVNULL)
         if completed.returncode == 0:
-            lines = [line.strip().replace("\\", "/") for line in completed.stdout.splitlines() if line.strip()]
-            filtered = []
-            for line in lines:
-                parts = tuple(line.split("/"))
-                if not _is_excluded_path(parts, active_excludes) and not is_secret_path(line):
-                    if not any(fnmatch.fnmatch(Path(line).name.lower(), g.lower()) for g in DEFAULT_FILE_GLOBS):
-                        filtered.append(line)
-            filtered.sort(key=lambda p: (_rank_file(p), p))
+            filtered = _filter_candidates(repo, completed.stdout.splitlines(), active_excludes)
             return filtered[:max_results]
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired):
+        # Windows can raise PermissionError/OSError when rg.exe is present but
+        # blocked by policy/ACLs. Treat it exactly like an unavailable binary.
         pass
     return _python_files_fallback(repo, max_results, excludes)
 
@@ -147,29 +197,22 @@ def search_files(repo: Path, term: str, max_results: int, excludes: list[str] | 
     try:
         completed = subprocess.run(args, cwd=repo, text=True, capture_output=True, timeout=5, shell=False, stdin=subprocess.DEVNULL)
         if completed.returncode in {0, 1}:
-            lines = [line.strip().replace("\\", "/") for line in completed.stdout.splitlines() if line.strip()]
-            filtered = []
-            for line in lines:
-                parts = tuple(line.split("/"))
-                if not _is_excluded_path(parts, active_excludes) and not is_secret_path(line):
-                    if not any(fnmatch.fnmatch(Path(line).name.lower(), g.lower()) for g in DEFAULT_FILE_GLOBS):
-                        filtered.append(line)
-            filtered.sort(key=lambda p: (_rank_file(p), p))
+            filtered = _filter_candidates(repo, completed.stdout.splitlines(), active_excludes)
             return {
                 "query": term,
                 "files": filtered[:max_results],
                 "truncated": len(filtered) > max_results,
                 "exit_code": completed.returncode,
             }
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired):
         pass
     return _python_search_fallback(repo, term, max_results, excludes)
 
 
-def _python_files_fallback(repo: Path, max_results: int, excludes: list[str] | None = None) -> list[str]:
+def _walk_files_fallback(repo: Path, excludes: list[str] | None = None) -> list[str]:
     active_excludes = excludes or DEFAULT_EXCLUDES
-    collected = []
-    for path in sorted(repo.rglob("*")):
+    collected: list[str] = []
+    for path in repo.rglob("*"):
         if not path.is_file():
             continue
         try:
@@ -181,30 +224,44 @@ def _python_files_fallback(repo: Path, max_results: int, excludes: list[str] | N
         rel_str = str(rel).replace("\\", "/")
         if is_secret_path(rel_str):
             continue
-        if any(fnmatch.fnmatch(path.name.lower(), g.lower()) for g in DEFAULT_FILE_GLOBS):
+        if any(fnmatch.fnmatch(path.name.lower(), glob.lower()) for glob in DEFAULT_FILE_GLOBS):
             continue
         collected.append(rel_str)
 
     collected.sort(key=lambda p: (_rank_file(p), p))
-    return collected[:max_results]
+    return collected
+
+
+def _python_files_fallback(repo: Path, max_results: int, excludes: list[str] | None = None) -> list[str]:
+    git_files = _git_files_fallback(repo, max_results, excludes)
+    if git_files is not None:
+        return git_files
+    return _walk_files_fallback(repo, excludes)[:max_results]
 
 
 def _python_search_fallback(repo: Path, term: str, max_results: int, excludes: list[str] | None = None) -> dict:
-    files = _python_files_fallback(repo, max_results * 10, excludes)
-    matched = []
+    files = _git_files_fallback(repo, None, excludes)
+    if files is None:
+        files = _walk_files_fallback(repo, excludes)
+
+    matched: list[str] = []
+    truncated = False
     for rel_path in files:
         file_path = repo / rel_path
         try:
             content = file_path.read_text(encoding="utf-8", errors="replace")
             if term in content:
                 matched.append(rel_path)
-        except Exception:
+                if len(matched) > max_results:
+                    truncated = True
+                    break
+        except (OSError, UnicodeError):
             continue
 
     matched.sort(key=lambda p: (_rank_file(p), p))
     return {
         "query": term,
         "files": matched[:max_results],
-        "truncated": len(matched) > max_results,
+        "truncated": truncated,
         "exit_code": 0,
     }
