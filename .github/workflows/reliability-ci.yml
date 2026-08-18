@@ -1,0 +1,46 @@
+name: Reliability CI
+
+on:
+  push:
+    branches: [main, integrate-reliability-stack]
+  pull_request:
+
+jobs:
+  reliability-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.12']
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: agent-core
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: agent-core/requirements-reliability.txt
+      - name: Install reliability stack
+        run: python -m pip install -r requirements-reliability.txt
+      - name: Compile source
+        run: python -m compileall -q .
+      - name: Reliability smoke tests
+        run: python -m unittest test_reliability_stack.py -v
+
+  legacy-regression:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: agent-core
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-reliability.txt
+      - name: Existing test suite (advisory until baseline failures are cleaned up)
+        run: python -m unittest discover -v
