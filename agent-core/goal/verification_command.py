@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any
 
@@ -20,6 +21,11 @@ def _clip_output(text: str) -> str:
     if len(encoded) <= MAX_VERIFICATION_OUTPUT_BYTES:
         return text or ""
     return encoded[:MAX_VERIFICATION_OUTPUT_BYTES].decode("utf-8", errors="ignore")
+
+
+def _portable_executable_name(path: str) -> str:
+    """Return the executable basename independent of the host OS path rules."""
+    return re.split(r"[\\/]", str(path))[-1].lower()
 
 
 def _is_pytest_available() -> bool:
@@ -51,7 +57,7 @@ def normalize_verification_command(command: Any, cwd: Path | str | None = None) 
 
     exe_raw = raw_argv[0]
     args = raw_argv[1:]
-    exe_name = Path(exe_raw).name.lower()
+    exe_name = _portable_executable_name(exe_raw)
 
     # 1. Environment-aware Python interpreter normalization
     if exe_name in {"python", "python.exe", "python3", "python3.exe", "py", "py.exe"}:
@@ -123,7 +129,7 @@ def normalize_verification_command(command: Any, cwd: Path | str | None = None) 
 def is_safe_verification_command(argv: list[str]) -> bool:
     if not argv:
         return False
-    exe = Path(argv[0]).name.lower()
+    exe = _portable_executable_name(argv[0])
     destructive_exes = {"rm", "del", "rmdir", "format", "shutdown"}
     if exe in destructive_exes:
         return False
@@ -181,10 +187,14 @@ def run_single_verification(
         }
 
     run_env = dict(os.environ)
-    run_env["PYTHONDONTWRITEBYTECODE"] = "1"
-    run_env["PYTHONUNBUFFERED"] = "1"
     if env:
         run_env.update(env)
+    # Verification must execute fresh source, not a stale __pycache__ from a prior run.
+    # A dedicated pycache prefix also keeps verification from writing into the target repo.
+    pycache_root = tempfile.mkdtemp(prefix="agent-army-verify-pycache-")
+    run_env["PYTHONDONTWRITEBYTECODE"] = "1"
+    run_env["PYTHONUNBUFFERED"] = "1"
+    run_env["PYTHONPYCACHEPREFIX"] = pycache_root
 
     start_time = time.perf_counter()
     try:
@@ -272,6 +282,8 @@ def run_single_verification(
             "duration_ms": duration_ms,
             "failure_code": "UNEXPECTED_ERROR",
         }
+    finally:
+        shutil.rmtree(pycache_root, ignore_errors=True)
 
 
 def run_verification_suite(

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -61,6 +63,27 @@ class VerificationCommandTests(unittest.TestCase):
             self.assertEqual(res["exit_code"], 0)
             self.assertIn("PASS", res["stdout"])
             self.assertIsNone(res["failure_code"])
+
+    def test_python_verification_ignores_stale_local_pyc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp)
+            source = cwd / "app.py"
+            source.write_text("VERSION = 1\n", encoding="utf-8")
+            original_stat = source.stat()
+
+            # Populate a local __pycache__ with VERSION=1.
+            subprocess.run([sys.executable, "-c", "import app"], cwd=cwd, check=True, capture_output=True)
+            self.assertTrue((cwd / "__pycache__").exists())
+
+            # Keep timestamp and size stable so timestamp-based pyc invalidation would accept stale bytecode.
+            source.write_text("VERSION = 2\n", encoding="utf-8")
+            os.utime(source, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+
+            res = run_single_verification(
+                "python -c \"import app; assert app.VERSION == 2, app.VERSION\"",
+                cwd=cwd,
+            )
+            self.assertEqual(res["status"], "PASS", res.get("stderr"))
 
     def test_run_single_verification_nonzero_exit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,6 +146,7 @@ class VerificationCommandTests(unittest.TestCase):
             script2.write_text("print('pass')", encoding="utf-8")
             res = run_verification_suite([f"python {script1.name}", f"python {script2.name}"], cwd=cwd)
             self.assertEqual(res["status"], "FAIL")
+
     def test_grep_fallback_execution(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cwd = Path(tmp)

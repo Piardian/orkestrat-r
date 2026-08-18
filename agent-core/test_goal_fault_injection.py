@@ -23,16 +23,20 @@ class GoalFaultInjectionTests(unittest.TestCase):
             record = service.create_goal("Test stale lock recovery", repo)
             resume_svc = GoalResumeService(service=service, runtime_root=root / "runtime")
 
-            # Write a fake dead PID to lock file
+            # Write a fake dead PID to lock file.
             dead_pid = 99999999
             self.assertFalse(_is_pid_alive(dead_pid))
             lock_path = root / "runtime" / "locks" / f"{record.goal_id}.lock"
             lock_path.write_text(f"{dead_pid} {int(time.time()) - 100}", encoding="utf-8")
 
-            # Resume must detect dead PID, clear lock, and succeed
-            res = resume_svc.resume(record.goal_id, execute=True)
-            self.assertTrue(res.lock_acquired)
-            self.assertTrue(res.executed)
+            # This test is about lock recovery only; it must not invoke a real LLM planner.
+            with resume_svc._acquire_lock(record.goal_id) as acquired:
+                self.assertTrue(acquired)
+                self.assertTrue(lock_path.exists())
+                lock_pid = int(lock_path.read_text(encoding="utf-8").split()[0])
+                self.assertEqual(lock_pid, os.getpid())
+
+            self.assertFalse(lock_path.exists())
 
     def test_stale_in_flight_building_resumes_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
