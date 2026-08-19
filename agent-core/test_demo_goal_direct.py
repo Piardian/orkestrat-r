@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 from run_demo_goal_direct import (
+    _changed_snapshot_paths,
     _cleanup_new_runtime_artifacts,
     _docker_volume_spec,
     _fast_snapshot,
@@ -29,6 +30,24 @@ class DirectDemoGoalTests(unittest.TestCase):
             self.assertNotIn('yahsi', before)
             self.assertIn('yahsi', after)
             self.assertEqual(after['yahsi'][0], 'dir')
+
+    def test_changed_snapshot_reports_new_directory_but_ignores_existing_directory_mtime(self) -> None:
+        before = {
+            'project': ('dir', 0, 10),
+            'project/app.py': ('file', 4, 10),
+        }
+        after = {
+            'project': ('dir', 0, 99),
+            'project/app.py': ('file', 4, 10),
+            'yahsi': ('dir', 0, 20),
+        }
+
+        self.assertEqual(_changed_snapshot_paths(before, after), ['yahsi'])
+
+    def test_changed_snapshot_still_reports_file_modification(self) -> None:
+        before = {'app.py': ('file', 4, 10)}
+        after = {'app.py': ('file', 5, 20)}
+        self.assertEqual(_changed_snapshot_paths(before, after), ['app.py'])
 
     def test_fast_snapshot_ignores_openhands_runtime_noise(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
