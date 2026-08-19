@@ -53,6 +53,15 @@ profiles:
     enabled: true
     role: commander
 
+  - id: step-3.7-demo
+    provider: openai-compatible
+    model: stepfun-ai/step-3.7-flash
+    base_url: https://integrate.api.nvidia.com/v1
+    secret_env: NVIDIA_API_KEY
+    owner: demo
+    enabled: true
+    role: demo
+
   - id: codex-main
     provider: openai-codex
     model: codex
