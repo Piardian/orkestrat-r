@@ -8,15 +8,19 @@ import unittest
 import yaml
 
 from run_demo_goal_direct import (
+    _DEMO_DEFAULT_TOOLS,
     _DEMO_MAX_ITERATIONS,
     _DEMO_PROFILE_ID,
     _DEMO_STUCK_DETECTION,
+    _DEMO_STUCK_RECOVERY_ATTEMPTS,
     _DEMO_SYSTEM_MESSAGE_SUFFIX,
+    _build_stuck_recovery_prompt,
     _changed_snapshot_paths,
     _cleanup_new_runtime_artifacts,
     _docker_volume_spec,
     _extract_agent_result,
     _fast_snapshot,
+    _is_stuck_error,
     _runtime_presence,
 )
 
@@ -38,6 +42,25 @@ class DirectDemoGoalTests(unittest.TestCase):
         self.assertIn('10 browser actions', _DEMO_SYSTEM_MESSAGE_SUFFIX)
         self.assertIn('20 total steps', _DEMO_SYSTEM_MESSAGE_SUFFIX)
         self.assertIn('soft caps do not apply', _DEMO_SYSTEM_MESSAGE_SUFFIX)
+
+    def test_direct_demo_avoids_think_tool_and_has_compatibility_recovery(self) -> None:
+        self.assertEqual(_DEMO_DEFAULT_TOOLS, ('FinishTool',))
+        self.assertNotIn('ThinkTool', _DEMO_DEFAULT_TOOLS)
+        self.assertGreaterEqual(_DEMO_STUCK_RECOVERY_ATTEMPTS, 1)
+        self.assertIn('think tool', _DEMO_SYSTEM_MESSAGE_SUFFIX.lower())
+
+    def test_stuck_error_detection_is_targeted(self) -> None:
+        self.assertTrue(_is_stuck_error(RuntimeError('Remote conversation got stuck')))
+        self.assertTrue(_is_stuck_error(RuntimeError('stuck pattern detected')))
+        self.assertFalse(_is_stuck_error(RuntimeError('429 rate limit exceeded')))
+        self.assertFalse(_is_stuck_error(RuntimeError('docker connection failed')))
+
+    def test_recovery_prompt_continues_existing_filesystem_state(self) -> None:
+        prompt = _build_stuck_recovery_prompt('Eksik CSS dosyasını oluştur')
+        self.assertIn('Eksik CSS dosyasını oluştur', prompt)
+        self.assertIn('CURRENT filesystem state', prompt)
+        self.assertIn('/workspace/host', prompt)
+        self.assertIn('think tool is intentionally unavailable', prompt)
 
     def test_direct_demo_requires_full_finish_output(self) -> None:
         self.assertIn('entire user-facing answer', _DEMO_SYSTEM_MESSAGE_SUFFIX)
