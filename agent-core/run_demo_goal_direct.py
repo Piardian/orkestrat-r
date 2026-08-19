@@ -14,7 +14,16 @@ from goal.openhands_adapter import OpenHandsBuilderAdapter, OpenHandsUnavailable
 
 
 _HOST_MOUNT = "/workspace/host"
-_RUNTIME_NOISE_PARTS = {"conversations", "bash_events", ".openhands", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+_RUNTIME_NOISE_PARTS = {
+    "conversations",
+    "bash_events",
+    ".openhands",
+    ".agent_tmp",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+}
 
 
 def main() -> int:
@@ -76,6 +85,7 @@ def run_demo_goal(workspace: str | Path, task: str, *, quiet: bool = False) -> d
         from openhands.sdk.conversation import Conversation
         from openhands.sdk.event import LLMConvertibleEvent
         from openhands.sdk.tool.spec import Tool
+        from openhands.tools.browser_use import BrowserToolSet
         from openhands.tools.file_editor import FileEditorTool
         from openhands.tools.task_tracker import TaskTrackerTool
         from openhands.tools.terminal import TerminalTool
@@ -117,8 +127,14 @@ def run_demo_goal(workspace: str | Path, task: str, *, quiet: bool = False) -> d
         Tool(name=TerminalTool.name),
         Tool(name=FileEditorTool.name),
         Tool(name=TaskTrackerTool.name),
+        Tool(name=BrowserToolSet.name),
     ]
-    tool_names = [TerminalTool.name, FileEditorTool.name, TaskTrackerTool.name]
+    tool_names = [
+        TerminalTool.name,
+        FileEditorTool.name,
+        TaskTrackerTool.name,
+        BrowserToolSet.name,
+    ]
     agent = Agent(llm=llm, tools=tools)
 
     prompt = f"""You are running in AGENT ARMY DEMO MODE.
@@ -134,10 +150,12 @@ Host workspace mapping:
 
 Demo-mode behavior:
 - Execute the user's goal directly.
-- You may use terminal and file editing tools inside {_HOST_MOUNT}.
+- You may use terminal, file editing, task tracking, and browser tools.
+- For web research or current-information goals, actually use the browser tool rather than relying only on model memory.
+- When researching, compare multiple relevant sources, distinguish source-backed facts from your reasoning, and include source URLs in the final answer.
 - Changes under {_HOST_MOUNT} are immediately visible on the user's host folder.
 - Do not assume the host folder is a git repository.
-- Do not create git metadata, conversation logs, task-tracker state, or other OpenHands runtime metadata inside {_HOST_MOUNT} unless the user explicitly asks for those files.
+- Do not create git metadata, conversation logs, task-tracker state, browser recordings, or other OpenHands runtime metadata inside {_HOST_MOUNT} unless the user explicitly asks for those files.
 - If the goal is read-only, report what you found without making unnecessary changes.
 - Finish with a concise statement of what you found or changed.
 """
@@ -200,6 +218,7 @@ def _runtime_presence(workspace: Path) -> dict[str, bool]:
         "conversations": (workspace / "conversations").exists(),
         "bash_events": (workspace / "bash_events").exists(),
         ".openhands": (workspace / ".openhands").exists(),
+        ".agent_tmp": (workspace / ".agent_tmp").exists(),
     }
 
 
