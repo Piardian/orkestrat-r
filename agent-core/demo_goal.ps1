@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 $core = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Join-Path $core ".venv-openhands\Scripts\python.exe"
-$runner = Join-Path $core "run_demo_goal_direct.py"
+$runner = Join-Path $core "run_demo_goal_dns.py"
 
 if (-not (Test-Path $python)) {
     throw "OpenHands virtualenv not found: $python"
