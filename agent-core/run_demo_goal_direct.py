@@ -42,7 +42,7 @@ def main() -> int:
         print(f"Workspace: {result['workspace']}")
         print(f"Tools: {', '.join(result['tools'])}")
         changed = result["changed_files"]
-        print("Changed files: " + (", ".join(changed) if changed else "NONE"))
+        print("Changed paths: " + (", ".join(changed) if changed else "NONE"))
         if result.get("assistant_result"):
             print("\nOpenHands result:")
             print(result["assistant_result"])
@@ -174,7 +174,7 @@ Demo-mode behavior:
 
     _cleanup_new_runtime_artifacts(host_workspace, runtime_presence)
     after = _fast_snapshot(host_workspace)
-    changed_files = sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
+    changed_files = _changed_snapshot_paths(before, after)
     assistant_result = _extract_assistant_result(messages)
 
     return {
@@ -236,6 +236,24 @@ def _fast_snapshot(workspace: Path) -> dict[str, tuple[str, int, int]]:
         except OSError:
             continue
     return result
+
+
+def _changed_snapshot_paths(
+    before: dict[str, tuple[str, int, int]],
+    after: dict[str, tuple[str, int, int]],
+) -> list[str]:
+    changed: list[str] = []
+    for path in sorted(set(before) | set(after)):
+        old = before.get(path)
+        new = after.get(path)
+        if old is None or new is None:
+            changed.append(path)
+            continue
+        if old[0] == "dir" and new[0] == "dir":
+            continue
+        if old != new:
+            changed.append(path)
+    return changed
 
 
 def _extract_assistant_result(messages: list[Any]) -> str:
