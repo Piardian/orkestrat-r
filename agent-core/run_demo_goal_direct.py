@@ -16,6 +16,15 @@ from goal.openhands_adapter import OpenHandsBuilderAdapter, OpenHandsUnavailable
 
 _HOST_MOUNT = "/workspace/host"
 _DEMO_PROFILE_ID = "gemini-3.5-flash-lite-demo"
+_DEMO_MAX_ITERATIONS = 10_000
+_DEMO_STUCK_DETECTION = False
+_DEMO_SYSTEM_MESSAGE_SUFFIX = (
+    "MVP DEMO LIMIT OVERRIDE: Ignore generic soft efficiency/browser guidance that tells you to stop "
+    "after 10 browser actions, 20 total steps, or similar step/action caps. Those soft caps do not "
+    "apply in this demo. Continue working until the user's requested task is actually complete, a hard "
+    "provider/runtime error prevents further progress, or the user interrupts. Do not stop merely to ask "
+    "for confirmation after a recoverable browser/tool error; try reasonable alternatives autonomously."
+)
 _RUNTIME_NOISE_PARTS = {
     "conversations",
     "bash_events",
@@ -84,6 +93,7 @@ def run_demo_goal(workspace: str | Path, task: str, *, quiet: bool = False) -> d
 
     try:
         from openhands.sdk.agent import Agent
+        from openhands.sdk.context import AgentContext
         from openhands.sdk.conversation import Conversation
         from openhands.sdk.event import LLMConvertibleEvent
         from openhands.sdk.tool.spec import Tool
@@ -137,7 +147,11 @@ def run_demo_goal(workspace: str | Path, task: str, *, quiet: bool = False) -> d
         TaskTrackerTool.name,
         BrowserToolSet.name,
     ]
-    agent = Agent(llm=llm, tools=tools)
+    agent = Agent(
+        llm=llm,
+        tools=tools,
+        agent_context=AgentContext(system_message_suffix=_DEMO_SYSTEM_MESSAGE_SUFFIX),
+    )
 
     prompt = f"""You are running in AGENT ARMY DEMO MODE.
 
@@ -180,7 +194,8 @@ Demo-mode behavior:
                 agent,
                 callbacks=[on_event],
                 workspace=remote,
-                max_iteration_per_run=24,
+                max_iteration_per_run=_DEMO_MAX_ITERATIONS,
+                stuck_detection=_DEMO_STUCK_DETECTION,
             )
             conversation.send_message(prompt)
             conversation.run()
