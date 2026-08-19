@@ -26,28 +26,32 @@ from run_demo_goal_direct import (
 
 
 class DirectDemoGoalTests(unittest.TestCase):
-    def test_direct_demo_uses_gemini_3_5_flash_lite_through_openrouter(self) -> None:
+    def test_direct_demo_uses_gemini_3_5_flash_lite_with_secondary_key(self) -> None:
         self.assertEqual(_DEMO_PROFILE_ID, 'gemini-3.5-flash-lite-demo')
         profiles_path = Path(__file__).resolve().parent / 'config' / 'profiles.yaml'
         raw = yaml.safe_load(profiles_path.read_text(encoding='utf-8')) or {}
         profile = next(item for item in raw.get('profiles', []) if item.get('id') == _DEMO_PROFILE_ID)
-        self.assertEqual(profile.get('provider'), 'openrouter')
-        self.assertEqual(profile.get('model'), 'openrouter/google/gemini-3.5-flash-lite')
-        self.assertEqual(profile.get('base_url'), 'https://openrouter.ai/api/v1')
-        self.assertEqual(profile.get('secret_env'), 'OPENROUTER_API_KEY')
-
-    def test_google_direct_gemini_3_5_demo_profile_remains_available(self) -> None:
-        profiles_path = Path(__file__).resolve().parent / 'config' / 'profiles.yaml'
-        raw = yaml.safe_load(profiles_path.read_text(encoding='utf-8')) or {}
-        profile = next(
-            item
-            for item in raw.get('profiles', [])
-            if item.get('id') == 'gemini-3.5-flash-lite-google-demo'
-        )
         self.assertEqual(profile.get('provider'), 'gemini')
         self.assertEqual(profile.get('model'), 'gemini/gemini-3.5-flash-lite')
         self.assertIsNone(profile.get('base_url'))
-        self.assertEqual(profile.get('secret_env'), 'GEMINI_USER_A_KEY')
+        self.assertEqual(profile.get('secret_env'), 'GEMINI_USER_B_KEY')
+
+    def test_google_a_and_openrouter_demo_profiles_remain_available(self) -> None:
+        profiles_path = Path(__file__).resolve().parent / 'config' / 'profiles.yaml'
+        raw = yaml.safe_load(profiles_path.read_text(encoding='utf-8')) or {}
+        profiles = {item.get('id'): item for item in raw.get('profiles', [])}
+
+        google_a = profiles['gemini-3.5-flash-lite-google-demo']
+        self.assertEqual(google_a.get('provider'), 'gemini')
+        self.assertEqual(google_a.get('model'), 'gemini/gemini-3.5-flash-lite')
+        self.assertIsNone(google_a.get('base_url'))
+        self.assertEqual(google_a.get('secret_env'), 'GEMINI_USER_A_KEY')
+
+        openrouter = profiles['gemini-3.5-flash-lite-openrouter-demo']
+        self.assertEqual(openrouter.get('provider'), 'openrouter')
+        self.assertEqual(openrouter.get('model'), 'openrouter/google/gemini-3.5-flash-lite')
+        self.assertEqual(openrouter.get('base_url'), 'https://openrouter.ai/api/v1')
+        self.assertEqual(openrouter.get('secret_env'), 'OPENROUTER_API_KEY')
 
     def test_direct_demo_relaxes_runtime_limits_but_keeps_loop_protection(self) -> None:
         self.assertGreaterEqual(_DEMO_MAX_ITERATIONS, 10_000)
