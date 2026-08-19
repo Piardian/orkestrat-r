@@ -18,12 +18,16 @@ _HOST_MOUNT = "/workspace/host"
 _DEMO_PROFILE_ID = "gemini-3.5-flash-lite-demo"
 _DEMO_MAX_ITERATIONS = 10_000
 _DEMO_STUCK_DETECTION = True
+_DEMO_STUCK_RECOVERY_ATTEMPTS = 1
+_DEMO_DEFAULT_TOOLS = ("FinishTool",)
 _DEMO_SYSTEM_MESSAGE_SUFFIX = (
     "MVP DEMO LIMIT OVERRIDE: Ignore generic soft efficiency/browser guidance that tells you to stop "
     "after 10 browser actions, 20 total steps, or similar step/action caps. Those soft caps do not "
     "apply in this demo. Continue working until the user's requested task is actually complete, a hard "
     "provider/runtime error prevents further progress, or the user interrupts. Do not stop merely to ask "
     "for confirmation after a recoverable browser/tool error; try reasonable alternatives autonomously. "
+    "Do not spend turns calling a separate think tool; it is intentionally unavailable in this demo. "
+    "Reason internally and call the action tool you need directly. "
     "FINAL OUTPUT: When you call the finish tool, put the entire user-facing answer directly in its "
     "message. Do not return only an introduction, completion notice, or text such as 'the result is "
     "below' without including the actual requested result in that same finish message."
@@ -66,6 +70,8 @@ def main() -> int:
         print(f"Tools: {', '.join(result['tools'])}")
         changed = result["changed_files"]
         print("Changed paths: " + (", ".join(changed) if changed else "NONE"))
+        if result.get("stuck_recoveries"):
+            print(f"Stuck recoveries: {result['stuck_recoveries']}")
         if result.get("assistant_result"):
             print("\nOpenHands result:")
             print(result["assistant_result"])
@@ -121,6 +127,16 @@ def run_demo_goal(workspace: str | Path, task: str, *, quiet: bool = False) -> d
             kind="OPENHANDS_SECRET_MISSING",
         )
     llm = adapter._build_llm(profile, api_key)
+    if "include_default_tools" not in getattr(Agent, "model_fields", {}):
+        raise OpenHandsUnavailableError(
+            "Installed OpenHands SDK does not support selecting default tools.",
+            kind="OPENHANDS_DEMO_TOOL_CONFIG_UNSUPPORTED",
+        )
+    if not hasattr(llm, "native_tool_calling") or not hasattr(llm, "model_copy"):
+        raise OpenHandsUnavailableError(
+            "Installed OpenHands SDK does not support demo tool-call recovery.",
+            kind="OPENHANDS_DEMO_TOOL_RECOVERY_UNSUPPORTED",
+        )
 
     sdk_version = importlib.metadata.version("openhands-sdk")
     server_image = os.getenv("AGENT_ARMY_OPENHANDS_SERVER_IMAGE", "").strip()
@@ -152,11 +168,6 @@ def run_demo_goal(workspace: str | Path, task: str, *, quiet: bool = False) -> d
         TaskTrackerTool.name,
         BrowserToolSet.name,
     ]
-    agent = Agent(
-        llm=llm,
-        tools=tools,
-        agent_context=AgentContext(system_message_suffix=_DEMO_SYSTEM_MESSAGE_SUFFIX),
-    )
 
     prompt = f"""You are running in AGENT ARMY DEMO MODE.
 
@@ -187,6 +198,8 @@ Demo-mode behavior:
     _progress(quiet, "[demo] Starting OpenHands Docker workspace...")
 
     conversation = None
+    stuck_recoveries = 0
+    used_compatibility_tool_mode = False
     try:
         with DockerWorkspace(
             server_image=server_image,
@@ -195,16 +208,48 @@ Demo-mode behavior:
             working_dir=_HOST_MOUNT,
         ) as remote:
             _progress(quiet, "[demo] Docker workspace ready. Running goal...")
-            conversation = Conversation(
-                agent,
-                callbacks=[on_event],
-                workspace=remote,
-                max_iteration_per_run=_DEMO_MAX_ITERATIONS,
-                stuck_detection=_DEMO_STUCK_DETECTION,
-            )
-            conversation.send_message(prompt)
-            conversation.run()
-            _progress(quiet, "[demo] OpenHands finished. Reading result...")
+            current_prompt = prompt
+            for attempt in range(_DEMO_STUCK_RECOVERY_ATTEMPTS + 1):
+                compatibility_mode = attempt > 0
+                current_llm = (
+                    llm.model_copy(update={"native_tool_calling": False})
+                    if compatibility_mode
+                    else llm
+                )
+                used_compatibility_tool_mode = compatibility_mode
+                agent = Agent(
+                    llm=current_llm,
+                    tools=tools,
+                    include_default_tools=list(_DEMO_DEFAULT_TOOLS),
+                    agent_context=AgentContext(system_message_suffix=_DEMO_SYSTEM_MESSAGE_SUFFIX),
+                )
+                conversation = Conversation(
+                    agent,
+                    callbacks=[on_event],
+                    workspace=remote,
+                    max_iteration_per_run=_DEMO_MAX_ITERATIONS,
+                    stuck_detection=_DEMO_STUCK_DETECTION,
+                )
+                conversation.send_message(current_prompt)
+                try:
+                    conversation.run()
+                except Exception as exc:
+                    if not _is_stuck_error(exc) or attempt >= _DEMO_STUCK_RECOVERY_ATTEMPTS:
+                        raise
+                    stuck_recoveries += 1
+                    _progress(
+                        quiet,
+                        "[demo] Empty/stuck tool loop detected. Reopening the conversation in compatibility tool mode...",
+                    )
+                    try:
+                        conversation.close()
+                    except Exception:
+                        pass
+                    conversation = None
+                    current_prompt = _build_stuck_recovery_prompt(task_text)
+                    continue
+                _progress(quiet, "[demo] OpenHands finished. Reading result...")
+                break
     finally:
         if conversation is not None:
             try:
@@ -227,7 +272,24 @@ Demo-mode behavior:
         "assistant_result": assistant_result,
         "server_image": server_image,
         "volume": volume,
+        "stuck_recoveries": stuck_recoveries,
+        "tool_call_mode": "compatibility-non-native" if used_compatibility_tool_mode else "native",
     }
+
+
+def _is_stuck_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "got stuck" in text or "stuck pattern" in text or "remote conversation is stuck" in text
+
+
+def _build_stuck_recovery_prompt(task_text: str) -> str:
+    return f"""RECOVERY MODE: The previous OpenHands conversation stopped after repeated empty/tool-less model responses.
+
+Original user goal:
+{task_text}
+
+Continue from the CURRENT filesystem state under {_HOST_MOUNT}. Any files already created or edited by the previous attempt are real and must be preserved unless they are incorrect. Inspect only what you need, then continue the unfinished work directly. Do not merely describe the next action. Use terminal/file-editor/browser/task tools when an action is needed. The separate think tool is intentionally unavailable. Finish the original goal and put the complete final user-facing answer in the finish tool message.
+"""
 
 
 def _docker_volume_spec(workspace: Path) -> str:
