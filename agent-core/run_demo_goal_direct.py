@@ -10,10 +10,12 @@ import shutil
 import sys
 from typing import Any
 
+from goal.builder_policy import BuilderPolicy
 from goal.openhands_adapter import OpenHandsBuilderAdapter, OpenHandsUnavailableError
 
 
 _HOST_MOUNT = "/workspace/host"
+_DEMO_PROFILE_ID = "step-3.7-demo"
 _RUNTIME_NOISE_PARTS = {
     "conversations",
     "bash_events",
@@ -96,7 +98,7 @@ def run_demo_goal(workspace: str | Path, task: str, *, quiet: bool = False) -> d
             kind="OPENHANDS_DEMO_IMPORT_FAILED",
         ) from exc
 
-    adapter = OpenHandsBuilderAdapter()
+    adapter = OpenHandsBuilderAdapter(policy=BuilderPolicy(profile=_DEMO_PROFILE_ID))
     profile = adapter._load_profile()
     secret_env = profile.get("secret_env")
     api_key = os.getenv(secret_env) if secret_env else None
