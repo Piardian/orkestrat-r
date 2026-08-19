@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 from run_demo_goal_direct import (
+    _DEMO_PROFILE_ID,
     _changed_snapshot_paths,
     _cleanup_new_runtime_artifacts,
     _docker_volume_spec,
@@ -14,6 +15,9 @@ from run_demo_goal_direct import (
 
 
 class DirectDemoGoalTests(unittest.TestCase):
+    def test_direct_demo_uses_step_3_7_profile(self) -> None:
+        self.assertEqual(_DEMO_PROFILE_ID, 'step-3.7-demo')
+
     def test_volume_spec_mounts_selected_workspace_under_workspace_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
