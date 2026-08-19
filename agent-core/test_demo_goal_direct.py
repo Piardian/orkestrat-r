@@ -7,7 +7,10 @@ import unittest
 import yaml
 
 from run_demo_goal_direct import (
+    _DEMO_MAX_ITERATIONS,
     _DEMO_PROFILE_ID,
+    _DEMO_STUCK_DETECTION,
+    _DEMO_SYSTEM_MESSAGE_SUFFIX,
     _changed_snapshot_paths,
     _cleanup_new_runtime_artifacts,
     _docker_volume_spec,
@@ -26,6 +29,13 @@ class DirectDemoGoalTests(unittest.TestCase):
         self.assertEqual(profile.get('model'), 'gemini/gemini-3.5-flash-lite')
         self.assertIsNone(profile.get('base_url'))
         self.assertEqual(profile.get('secret_env'), 'GEMINI_USER_A_KEY')
+
+    def test_direct_demo_relaxes_runtime_limits_for_mvp(self) -> None:
+        self.assertGreaterEqual(_DEMO_MAX_ITERATIONS, 10_000)
+        self.assertFalse(_DEMO_STUCK_DETECTION)
+        self.assertIn('10 browser actions', _DEMO_SYSTEM_MESSAGE_SUFFIX)
+        self.assertIn('20 total steps', _DEMO_SYSTEM_MESSAGE_SUFFIX)
+        self.assertIn('soft caps do not apply', _DEMO_SYSTEM_MESSAGE_SUFFIX)
 
     def test_volume_spec_mounts_selected_workspace_under_workspace_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
