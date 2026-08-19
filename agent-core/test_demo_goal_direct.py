@@ -54,6 +54,8 @@ class DirectDemoGoalTests(unittest.TestCase):
             root = Path(tmp)
             (root / 'conversations' / 'abc').mkdir(parents=True)
             (root / 'conversations' / 'abc' / 'event.json').write_text('{}', encoding='utf-8')
+            (root / '.agent_tmp' / 'browser_observations').mkdir(parents=True)
+            (root / '.agent_tmp' / 'browser_observations' / '1.json').write_text('{}', encoding='utf-8')
             (root / 'project').mkdir()
             (root / 'project' / 'real.txt').write_text('ok', encoding='utf-8')
 
@@ -61,6 +63,8 @@ class DirectDemoGoalTests(unittest.TestCase):
 
             self.assertNotIn('conversations', snap)
             self.assertNotIn('conversations/abc/event.json', snap)
+            self.assertNotIn('.agent_tmp', snap)
+            self.assertNotIn('.agent_tmp/browser_observations/1.json', snap)
             self.assertIn('project/real.txt', snap)
 
     def test_cleanup_removes_only_runtime_artifacts_created_by_demo(self) -> None:
@@ -71,11 +75,13 @@ class DirectDemoGoalTests(unittest.TestCase):
 
             (root / 'conversations').mkdir()
             (root / 'bash_events').mkdir()
+            (root / '.agent_tmp').mkdir()
             _cleanup_new_runtime_artifacts(root, before)
 
             self.assertTrue((root / '.git').exists())
             self.assertFalse((root / 'conversations').exists())
             self.assertFalse((root / 'bash_events').exists())
+            self.assertFalse((root / '.agent_tmp').exists())
 
 
 if __name__ == '__main__':
