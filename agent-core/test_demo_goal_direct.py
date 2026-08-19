@@ -11,6 +11,7 @@ from run_demo_goal_direct import (
     _DEMO_DEFAULT_TOOLS,
     _DEMO_MAX_ITERATIONS,
     _DEMO_PROFILE_ID,
+    _DEMO_RECOVERY_TOOL_NAMES,
     _DEMO_STUCK_DETECTION,
     _DEMO_STUCK_RECOVERY_ATTEMPTS,
     _DEMO_SYSTEM_MESSAGE_SUFFIX,
@@ -66,6 +67,12 @@ class DirectDemoGoalTests(unittest.TestCase):
         self.assertGreaterEqual(_DEMO_STUCK_RECOVERY_ATTEMPTS, 1)
         self.assertIn('think tool', _DEMO_SYSTEM_MESSAGE_SUFFIX.lower())
 
+    def test_recovery_removes_file_editor_but_keeps_terminal(self) -> None:
+        self.assertIn('TerminalTool', _DEMO_RECOVERY_TOOL_NAMES)
+        self.assertIn('TaskTrackerTool', _DEMO_RECOVERY_TOOL_NAMES)
+        self.assertIn('BrowserToolSet', _DEMO_RECOVERY_TOOL_NAMES)
+        self.assertNotIn('FileEditorTool', _DEMO_RECOVERY_TOOL_NAMES)
+
     def test_stuck_error_detection_is_targeted(self) -> None:
         self.assertTrue(_is_stuck_error(RuntimeError('Remote conversation got stuck')))
         self.assertTrue(_is_stuck_error(RuntimeError('stuck pattern detected')))
@@ -78,6 +85,8 @@ class DirectDemoGoalTests(unittest.TestCase):
         self.assertIn('CURRENT filesystem state', prompt)
         self.assertIn('/workspace/host', prompt)
         self.assertIn('think tool is intentionally unavailable', prompt)
+        self.assertIn('file editor is intentionally unavailable', prompt.lower())
+        self.assertIn('use the terminal tool directly', prompt.lower())
 
     def test_direct_demo_requires_full_finish_output(self) -> None:
         self.assertIn('entire user-facing answer', _DEMO_SYSTEM_MESSAGE_SUFFIX)

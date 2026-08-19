@@ -20,6 +20,7 @@ _DEMO_MAX_ITERATIONS = 10_000
 _DEMO_STUCK_DETECTION = True
 _DEMO_STUCK_RECOVERY_ATTEMPTS = 1
 _DEMO_DEFAULT_TOOLS = ("FinishTool",)
+_DEMO_RECOVERY_TOOL_NAMES = ("TerminalTool", "TaskTrackerTool", "BrowserToolSet")
 _DEMO_SYSTEM_MESSAGE_SUFFIX = (
     "MVP DEMO LIMIT OVERRIDE: Ignore generic soft efficiency/browser guidance that tells you to stop "
     "after 10 browser actions, 20 total steps, or similar step/action caps. Those soft caps do not "
@@ -162,6 +163,11 @@ def run_demo_goal(workspace: str | Path, task: str, *, quiet: bool = False) -> d
         Tool(name=TaskTrackerTool.name),
         Tool(name=BrowserToolSet.name),
     ]
+    recovery_tools = [
+        Tool(name=TerminalTool.name),
+        Tool(name=TaskTrackerTool.name),
+        Tool(name=BrowserToolSet.name),
+    ]
     tool_names = [
         TerminalTool.name,
         FileEditorTool.name,
@@ -216,10 +222,11 @@ Demo-mode behavior:
                     if compatibility_mode
                     else llm
                 )
+                active_tools = recovery_tools if compatibility_mode else tools
                 used_compatibility_tool_mode = compatibility_mode
                 agent = Agent(
                     llm=current_llm,
-                    tools=tools,
+                    tools=active_tools,
                     include_default_tools=list(_DEMO_DEFAULT_TOOLS),
                     agent_context=AgentContext(system_message_suffix=_DEMO_SYSTEM_MESSAGE_SUFFIX),
                 )
@@ -239,7 +246,7 @@ Demo-mode behavior:
                     stuck_recoveries += 1
                     _progress(
                         quiet,
-                        "[demo] Empty/stuck tool loop detected. Reopening the conversation in compatibility tool mode...",
+                        "[demo] Empty/stuck tool loop detected. Reopening with terminal-first compatibility tools...",
                     )
                     try:
                         conversation.close()
@@ -283,12 +290,12 @@ def _is_stuck_error(exc: BaseException) -> bool:
 
 
 def _build_stuck_recovery_prompt(task_text: str) -> str:
-    return f"""RECOVERY MODE: The previous OpenHands conversation stopped after repeated empty/tool-less model responses.
+    return f"""RECOVERY MODE: The previous OpenHands conversation stopped after repeated empty/tool-less or malformed file-editor responses.
 
 Original user goal:
 {task_text}
 
-Continue from the CURRENT filesystem state under {_HOST_MOUNT}. Any files already created or edited by the previous attempt are real and must be preserved unless they are incorrect. Inspect only what you need, then continue the unfinished work directly. Do not merely describe the next action. Use terminal/file-editor/browser/task tools when an action is needed. The separate think tool is intentionally unavailable. Finish the original goal and put the complete final user-facing answer in the finish tool message.
+Continue from the CURRENT filesystem state under {_HOST_MOUNT}. Any files already created or edited by the previous attempt are real and must be preserved unless they are incorrect. Inspect only what you need, then continue the unfinished work directly. The file editor is intentionally unavailable in recovery mode because the previous model responses malformed its arguments. For file creation or editing, use the terminal tool directly with shell commands or a small Python command/script. Browser and task tools remain available when needed. Do not merely describe the next action. The separate think tool is intentionally unavailable. Finish the original goal and put the complete final user-facing answer in the finish tool message.
 """
 
 
