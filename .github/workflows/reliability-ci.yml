@@ -28,7 +28,7 @@ jobs:
       - name: Compile source
         run: python -m compileall -q .
       - name: Reliability and production-safety smoke tests
-        run: python -m unittest test_reliability_stack.py test_production_safety_stack.py test_transactional_apply.py test_evidence_builder.py test_audit_intent_classification.py test_demo_goal_runner.py -v
+        run: python -m unittest test_reliability_stack.py test_production_safety_stack.py test_transactional_apply.py test_evidence_builder.py test_audit_intent_classification.py test_demo_goal_runner.py test_demo_goal_direct.py -v
 
   full-regression:
     runs-on: ubuntu-latest
@@ -134,7 +134,7 @@ jobs:
       - name: Install isolated OpenHands environment
         run: python -m pip install -r requirements-openhands.txt
       - name: Verify OpenHands runtime contract
-        run: python -c "import psycopg; from openhands.workspace import DockerWorkspace; from openhands.tools.terminal import TerminalTool; from goal.openhands_docker_adapter import DockerOpenHandsBuilderAdapter; from goal.store import PostgresGoalStore; import run_demo_goal; print('OpenHands Docker + terminal + PostgreSQL runtime contract OK')"
+        run: python -c "import psycopg; from openhands.workspace import DockerWorkspace; from openhands.tools.terminal import TerminalTool; from openhands.tools.browser_use import BrowserToolSet; from goal.openhands_docker_adapter import DockerOpenHandsBuilderAdapter; from goal.store import PostgresGoalStore; import run_demo_goal; import run_demo_goal_direct; print('OpenHands Docker + terminal + browser + PostgreSQL runtime contract OK')"
       - name: Exercise networkless Docker verification
         run: |
           mkdir -p /tmp/agent-army-sandbox-smoke
