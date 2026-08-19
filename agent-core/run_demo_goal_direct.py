@@ -17,7 +17,7 @@ from goal.openhands_adapter import OpenHandsBuilderAdapter, OpenHandsUnavailable
 _HOST_MOUNT = "/workspace/host"
 _DEMO_PROFILE_ID = "gemini-3.5-flash-lite-demo"
 _DEMO_MAX_ITERATIONS = 10_000
-_DEMO_STUCK_DETECTION = False
+_DEMO_STUCK_DETECTION = True
 _DEMO_SYSTEM_MESSAGE_SUFFIX = (
     "MVP DEMO LIMIT OVERRIDE: Ignore generic soft efficiency/browser guidance that tells you to stop "
     "after 10 browser actions, 20 total steps, or similar step/action caps. Those soft caps do not "

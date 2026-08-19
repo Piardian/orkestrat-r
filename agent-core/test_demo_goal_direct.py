@@ -32,9 +32,9 @@ class DirectDemoGoalTests(unittest.TestCase):
         self.assertIsNone(profile.get('base_url'))
         self.assertEqual(profile.get('secret_env'), 'GEMINI_USER_A_KEY')
 
-    def test_direct_demo_relaxes_runtime_limits_for_mvp(self) -> None:
+    def test_direct_demo_relaxes_runtime_limits_but_keeps_loop_protection(self) -> None:
         self.assertGreaterEqual(_DEMO_MAX_ITERATIONS, 10_000)
-        self.assertFalse(_DEMO_STUCK_DETECTION)
+        self.assertTrue(_DEMO_STUCK_DETECTION)
         self.assertIn('10 browser actions', _DEMO_SYSTEM_MESSAGE_SUFFIX)
         self.assertIn('20 total steps', _DEMO_SYSTEM_MESSAGE_SUFFIX)
         self.assertIn('soft caps do not apply', _DEMO_SYSTEM_MESSAGE_SUFFIX)
