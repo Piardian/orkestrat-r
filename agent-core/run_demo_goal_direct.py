@@ -15,7 +15,7 @@ from goal.openhands_adapter import OpenHandsBuilderAdapter, OpenHandsUnavailable
 
 
 _HOST_MOUNT = "/workspace/host"
-_DEMO_PROFILE_ID = "step-3.7-demo"
+_DEMO_PROFILE_ID = "gemini-3.5-flash-lite-demo"
 _RUNTIME_NOISE_PARTS = {
     "conversations",
     "bash_events",
