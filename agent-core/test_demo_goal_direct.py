@@ -4,6 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import yaml
+
 from run_demo_goal_direct import (
     _DEMO_PROFILE_ID,
     _changed_snapshot_paths,
@@ -17,6 +19,13 @@ from run_demo_goal_direct import (
 class DirectDemoGoalTests(unittest.TestCase):
     def test_direct_demo_uses_step_3_7_profile(self) -> None:
         self.assertEqual(_DEMO_PROFILE_ID, 'step-3.7-demo')
+        profiles_path = Path(__file__).resolve().parent / 'config' / 'profiles.yaml'
+        raw = yaml.safe_load(profiles_path.read_text(encoding='utf-8')) or {}
+        profile = next(item for item in raw.get('profiles', []) if item.get('id') == _DEMO_PROFILE_ID)
+        self.assertEqual(profile.get('provider'), 'openai-compatible')
+        self.assertEqual(profile.get('model'), 'stepfun-ai/step-3.7-flash')
+        self.assertEqual(profile.get('base_url'), 'https://integrate.api.nvidia.com/v1')
+        self.assertEqual(profile.get('secret_env'), 'NVIDIA_API_KEY')
 
     def test_volume_spec_mounts_selected_workspace_under_workspace_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
