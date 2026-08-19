@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 
@@ -14,6 +15,7 @@ from run_demo_goal_direct import (
     _changed_snapshot_paths,
     _cleanup_new_runtime_artifacts,
     _docker_volume_spec,
+    _extract_agent_result,
     _fast_snapshot,
     _runtime_presence,
 )
@@ -36,6 +38,20 @@ class DirectDemoGoalTests(unittest.TestCase):
         self.assertIn('10 browser actions', _DEMO_SYSTEM_MESSAGE_SUFFIX)
         self.assertIn('20 total steps', _DEMO_SYSTEM_MESSAGE_SUFFIX)
         self.assertIn('soft caps do not apply', _DEMO_SYSTEM_MESSAGE_SUFFIX)
+
+    def test_direct_demo_requires_full_finish_output(self) -> None:
+        self.assertIn('entire user-facing answer', _DEMO_SYSTEM_MESSAGE_SUFFIX)
+        self.assertIn('actual requested result', _DEMO_SYSTEM_MESSAGE_SUFFIX)
+
+    def test_extract_agent_result_prefers_finish_action_message(self) -> None:
+        finish = SimpleNamespace(
+            source='agent',
+            tool_name='finish',
+            action=SimpleNamespace(message='Tam final rapor'),
+        )
+        fallback = SimpleNamespace(role='assistant', content='Eski kısa mesaj')
+
+        self.assertEqual(_extract_agent_result([finish], [fallback]), 'Tam final rapor')
 
     def test_volume_spec_mounts_selected_workspace_under_workspace_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

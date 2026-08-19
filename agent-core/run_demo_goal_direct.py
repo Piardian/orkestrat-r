@@ -23,7 +23,10 @@ _DEMO_SYSTEM_MESSAGE_SUFFIX = (
     "after 10 browser actions, 20 total steps, or similar step/action caps. Those soft caps do not "
     "apply in this demo. Continue working until the user's requested task is actually complete, a hard "
     "provider/runtime error prevents further progress, or the user interrupts. Do not stop merely to ask "
-    "for confirmation after a recoverable browser/tool error; try reasonable alternatives autonomously."
+    "for confirmation after a recoverable browser/tool error; try reasonable alternatives autonomously. "
+    "FINAL OUTPUT: When you call the finish tool, put the entire user-facing answer directly in its "
+    "message. Do not return only an introduction, completion notice, or text such as 'the result is "
+    "below' without including the actual requested result in that same finish message."
 )
 _RUNTIME_NOISE_PARTS = {
     "conversations",
@@ -126,9 +129,11 @@ def run_demo_goal(workspace: str | Path, task: str, *, quiet: bool = False) -> d
 
     before = _fast_snapshot(host_workspace)
     runtime_presence = _runtime_presence(host_workspace)
+    events: list[Any] = []
     messages: list[Any] = []
 
     def on_event(event: Any) -> None:
+        events.append(event)
         try:
             if isinstance(event, LLMConvertibleEvent):
                 messages.append(event.to_llm_message())
@@ -173,7 +178,7 @@ Demo-mode behavior:
 - Do not assume the host folder is a git repository.
 - Do not create git metadata, conversation logs, task-tracker state, browser recordings, or other OpenHands runtime metadata inside {_HOST_MOUNT} unless the user explicitly asks for those files.
 - If the goal is read-only, report what you found without making unnecessary changes.
-- Finish with a concise statement of what you found or changed.
+- When finished, return the actual complete user-facing result in the finish tool message so the demo runner can display it.
 """
 
     volume = _docker_volume_spec(host_workspace)
@@ -210,7 +215,7 @@ Demo-mode behavior:
     _cleanup_new_runtime_artifacts(host_workspace, runtime_presence)
     after = _fast_snapshot(host_workspace)
     changed_files = _changed_snapshot_paths(before, after)
-    assistant_result = _extract_assistant_result(messages)
+    assistant_result = _extract_agent_result(events, messages)
 
     return {
         "status": "COMPLETED",
@@ -290,6 +295,23 @@ def _changed_snapshot_paths(
         if old != new:
             changed.append(path)
     return changed
+
+
+def _extract_agent_result(events: list[Any], messages: list[Any]) -> str:
+    for event in reversed(events):
+        source = getattr(event, "source", None)
+        source_value = getattr(source, "value", source)
+        if str(source_value).lower() != "agent":
+            continue
+        tool_name = getattr(event, "tool_name", None)
+        tool_value = getattr(tool_name, "value", tool_name)
+        if str(tool_value).lower() != "finish":
+            continue
+        action = getattr(event, "action", None)
+        message = getattr(action, "message", None)
+        if message:
+            return str(message).strip()
+    return _extract_assistant_result(messages)
 
 
 def _extract_assistant_result(messages: list[Any]) -> str:
