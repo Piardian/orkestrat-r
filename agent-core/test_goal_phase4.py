@@ -4,6 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from goal import GoalComplexityService, GoalService, GoalStore, GoalReview, GoalPlan
 from goal.complexity import ComplexityAssessment
@@ -29,7 +30,7 @@ class Phase4GoalTests(unittest.TestCase):
             self.assertEqual(assessment.llm_calls, 0)
             self.assertTrue((service.store.goal_dir(planned.goal_id) / "complexity.json").exists())
 
-    def test_hard_security_goal_routes_to_codex(self) -> None:
+    def test_hard_security_goal_routes_to_openhands_in_mvp_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
@@ -53,13 +54,34 @@ class Phase4GoalTests(unittest.TestCase):
                 review_risk_flags=["security risk"],
             )
             assessment_service = GoalComplexityService(service=service)
-            record, assessment = assessment_service.assess_goal(planned.goal_id)
+            with patch.dict("os.environ", {"AGENT_ARMY_OPENHANDS_ONLY": "true"}, clear=False):
+                record, assessment = assessment_service.assess_goal(planned.goal_id)
+
+            self.assertEqual(record.status, "READY_FOR_OPENHANDS")
+            self.assertEqual(assessment.severity, "CRITICAL")
+            self.assertEqual(assessment.recommended_executor, "openhands")
+            self.assertGreaterEqual(assessment.score, 9)
+            self.assertTrue(assessment.hard_overrides)
+
+    def test_hard_goal_routes_to_codex_only_when_openhands_only_is_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            service, planned = self._seed_approved_goal(
+                root,
+                repo,
+                candidate_files=["auth/migration.sql"],
+                summary="Security database migration.",
+                risks=["security", "database migration"],
+            )
+
+            with patch.dict("os.environ", {"AGENT_ARMY_OPENHANDS_ONLY": "false"}, clear=False):
+                record, assessment = GoalComplexityService(service=service).assess_goal(planned.goal_id)
 
             self.assertEqual(record.status, "CODEX_REQUIRED")
             self.assertEqual(assessment.severity, "CRITICAL")
             self.assertEqual(assessment.recommended_executor, "codex")
-            self.assertGreaterEqual(assessment.score, 9)
-            self.assertTrue(assessment.hard_overrides)
 
     def test_non_approved_goal_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

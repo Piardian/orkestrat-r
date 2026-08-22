@@ -28,7 +28,7 @@ reviewer:
   enabled: true
 
 patching:
-  mode: manual-codex
+  mode: openhands-only
   fallback_profile: nemotron-main
   auto_fallback: false
 
@@ -36,6 +36,7 @@ builder:
   mode: local-safe
   profile: gemini-user-a
   max_runtime_seconds: 600
+  max_iterations: 10000
   max_patch_bytes: 200000
   rate_limit_enabled: true
   rate_limit_requests_per_minute: 20

@@ -97,6 +97,7 @@ NEXT_ACTION = {
     "BUILD_REJECTED": "python run_builder.py --goal-id GOAL-... --execute",
     "BUILD_REVIEW_FAILED": "python finalize_goal.py review --goal-id GOAL-...",
     "BUILD_REVIEW_UNKNOWN": "python finalize_goal.py review --goal-id GOAL-...",
+    "CODEX_REQUIRED": "python goal_ctl.py resume --goal-id GOAL-... --execute",
     "WAITING_CODEX": "python codex_goal.py submit --goal-id GOAL-...",
     "READY_TO_APPLY": "python finalize_goal.py apply --goal-id GOAL-... --apply",
     "APPLYING": "python finalize_goal.py apply --goal-id GOAL-... --apply",

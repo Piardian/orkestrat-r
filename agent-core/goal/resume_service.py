@@ -13,6 +13,7 @@ from .finalize import FinalReviewService
 from .model import GoalRecord
 from .planner import GoalPlanner
 from .review_service import GoalReviewService
+from .runtime_policy import openhands_only_mode
 from .service import GoalService
 from .status_service import GoalStatusService
 
@@ -94,6 +95,15 @@ class GoalResumeService:
             return ResumeResult(record.goal_id, record.status, "final-review", True, "Final review executed.", True)
 
         if state == "CODEX_REQUIRED":
+            if openhands_only_mode():
+                record = self.service.update_status(
+                    record,
+                    "READY_FOR_OPENHANDS",
+                    phase="complexity-assessed",
+                    note="legacy Codex route redirected to OpenHands-only MVP execution",
+                )
+                record, _, _ = GoalBuilderService(service=self.service).execute(record.goal_id)
+                return ResumeResult(record.goal_id, record.status, "builder", True, "OpenHands builder executed.", True)
             record, _, _ = GoalCodexService(service=self.service, runtime_root=self.runtime_root).prepare(record.goal_id)
             return ResumeResult(record.goal_id, record.status, "codex-prepare", True, "Codex prompt prepared.", True)
 

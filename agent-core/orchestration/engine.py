@@ -14,6 +14,7 @@ from goal import (
     GoalReviewService,
     GoalService,
 )
+from goal.runtime_policy import openhands_only_mode
 from llm.router import LLMRouter
 from routing import resolve_commander_profile
 
@@ -118,6 +119,15 @@ class GoalPipelineEngine:
 
     def build(self, goal_id: str) -> str:
         state = self._state(goal_id)
+        if state == "CODEX_REQUIRED" and openhands_only_mode():
+            record = self.service.read_goal(goal_id)
+            record = self.service.update_status(
+                record,
+                "READY_FOR_OPENHANDS",
+                phase="complexity-assessed",
+                note="legacy Codex route redirected to OpenHands-only MVP execution",
+            )
+            state = record.status.strip().upper()
         if state != "READY_FOR_OPENHANDS":
             self._event("openhands-build", "skipped", state)
             return state
@@ -244,7 +254,7 @@ def _next_action(state: str) -> str | None:
     mapping = {
         "READY_TO_APPLY": "Explicit user approval is required before applying the patch.",
         "APPLYING": "Resume the persisted transactional apply; do not start a second apply.",
-        "CODEX_REQUIRED": "Use the existing Codex/manual path for this high-complexity goal.",
+        "CODEX_REQUIRED": "Resume this legacy goal; OpenHands-only MVP mode will redirect it to the builder.",
         "BUILD_FAILED": "Inspect build.json/verification.json, then retry the OpenHands build.",
         "BUILDER_BLOCKED": "Resolve the builder preflight block, then retry.",
         "BUILDER_POLICY_VIOLATION": "Review unauthorized changes before retrying.",

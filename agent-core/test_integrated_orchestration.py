@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -37,6 +38,12 @@ class _CompletedService:
         return self.record
 
 
+class _MutableService(_CompletedService):
+    def update_status(self, record: _Record, status: str, **kwargs) -> _Record:  # noqa: ANN003
+        self.record = _Record(record.goal_id, status)
+        return self.record
+
+
 class IntegratedOrchestrationTests(unittest.TestCase):
     def test_native_runner_respects_existing_terminal_state(self) -> None:
         goal_id = "GOAL-20260817-0001"
@@ -60,6 +67,23 @@ class IntegratedOrchestrationTests(unittest.TestCase):
             python_path.write_text("", encoding="utf-8")
             resolved = resolve_openhands_python(str(python_path), Path(tmp))
             self.assertEqual(Path(resolved), python_path.resolve())
+
+    def test_legacy_codex_state_is_redirected_to_openhands_builder(self) -> None:
+        goal_id = "GOAL-20260817-0002"
+        service = _MutableService(goal_id)
+        service.record = _Record(goal_id, "CODEX_REQUIRED")
+        engine = GoalPipelineEngine(PipelineRequest(goal_id=goal_id), service=service)  # type: ignore[arg-type]
+        completed = types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch.dict(os.environ, {"AGENT_ARMY_OPENHANDS_ONLY": "true"}, clear=False), patch(
+            "orchestration.engine.resolve_openhands_python",
+            return_value=sys.executable,
+        ), patch("orchestration.engine.subprocess.run", return_value=completed) as run_mock:
+            state = engine.build(goal_id)
+
+        self.assertEqual(state, "READY_FOR_OPENHANDS")
+        self.assertEqual(service.record.status, "READY_FOR_OPENHANDS")
+        run_mock.assert_called_once()
 
     def test_openclaw_dispatch_never_forwards_auto_apply(self) -> None:
         script = Path(__file__).parent / "openclaw" / "skills" / "agent-army" / "scripts" / "dispatch.py"

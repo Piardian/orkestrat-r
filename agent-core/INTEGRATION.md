@@ -34,6 +34,30 @@ py -3.12 -m venv .venv-openhands
 
 Reliability/Temporal environment installs `requirements-reliability.txt`.
 
+## MVP OpenHands-only routing
+
+The integrated MVP path defaults to OpenHands for every approved code-modification
+goal. Complexity is still calculated and persisted for observability, but a
+`HARD` or `CRITICAL` assessment no longer diverts the run to manual Codex.
+
+OpenHands receives a terminal only inside its isolated workspace so it can run
+tests, start local services, verify endpoints, and iterate before returning its
+patch. The iteration budget is independent of the verification timeout:
+
+```dotenv
+AGENT_ARMY_OPENHANDS_ONLY=true
+AGENT_ARMY_OPENHANDS_MAX_ITERATIONS=10000
+AGENT_ARMY_OPENHANDS_TERMINAL_ENABLED=true
+AGENT_ARMY_OPENHANDS_STUCK_DETECTION=false
+```
+
+The older `AGENT_ARMY_FORCE_OPENHANDS`, `AGENT_ARMY_CODEX_ENABLED`,
+`AGENT_ARMY_COMPLEXITY_GATE_ENABLED`,
+`AGENT_ARMY_REQUIRE_CODEX_FOR_COMPLEXITY`, and
+`AGENT_ARMY_BUILDER_MAX_ITERATIONS` names remain accepted for existing local
+MVP configurations. Set `AGENT_ARMY_OPENHANDS_ONLY=false` explicitly only when
+restoring the legacy complexity-to-Codex route.
+
 ## Production durable run
 
 Start PostgreSQL + Temporal first (the provided local Compose stack is for local integration/development), then run the Temporal worker and submit work with the Temporal orchestrator.

@@ -32,6 +32,7 @@ class BuilderPolicy:
     mode: str = "local-safe"
     profile: str = "gemini-user-a"
     max_runtime_seconds: int = 600
+    max_iterations: int = 10_000
     max_patch_bytes: int = 200_000
     forbidden_patterns: list[str] = None  # type: ignore[assignment]
     allowed_safe_commands: list[str] = None  # type: ignore[assignment]
@@ -59,6 +60,7 @@ class BuilderPolicy:
             mode=str(raw.get("mode", "local-safe")),
             profile=str(raw.get("profile", "gemini-user-a")),
             max_runtime_seconds=int(raw.get("max_runtime_seconds", 600) or 600),
+            max_iterations=int(raw.get("max_iterations", 10_000) or 10_000),
             max_patch_bytes=int(raw.get("max_patch_bytes", 200_000) or 200_000),
             forbidden_patterns=[str(item) for item in raw.get("forbidden_patterns", DEFAULT_FORBIDDEN_PATTERNS)],
             allowed_safe_commands=[str(item) for item in raw.get("allowed_safe_commands", DEFAULT_ALLOWED_SAFE_COMMANDS)],
