@@ -19,7 +19,7 @@ class DockerVerificationSessionTests(unittest.TestCase):
             "curl http://localhost:3000/demo",
             "pkill -f src/server.js",
         ]
-        calls: list[tuple[list[str], str | None]] = []
+        calls: list[tuple[list[str], bytes | None]] = []
 
         def fake_run(argv, **kwargs):  # noqa: ANN001
             args = [str(item) for item in argv]
@@ -58,13 +58,13 @@ class DockerVerificationSessionTests(unittest.TestCase):
 
         container_name = run_calls[0][0][run_calls[0][0].index("--name") + 1]
         self.assertTrue(all(call[0][3] == container_name for call in exec_calls))
-        self.assertEqual(exec_calls[0][1], "npm test\n")
+        self.assertEqual(exec_calls[0][1], b"npm test\n")
         self.assertEqual(exec_calls[1][0][2], "-d")
         self.assertIsNone(exec_calls[1][1])
         self.assertEqual(exec_calls[1][0][-1], "node src/server.js")
-        self.assertEqual(exec_calls[2][1], "curl http://localhost:3000/health\n")
-        self.assertEqual(exec_calls[3][1], "curl http://localhost:3000/demo\n")
-        self.assertEqual(exec_calls[4][1], "pkill -f src/server.js\n")
+        self.assertEqual(exec_calls[2][1], b"curl http://localhost:3000/health\n")
+        self.assertEqual(exec_calls[3][1], b"curl http://localhost:3000/demo\n")
+        self.assertEqual(exec_calls[4][1], b"pkill -f src/server.js\n")
         self.assertNotIn("src/server.js", " ".join(exec_calls[4][0]))
         self.assertEqual(cleanup_calls[0][0][-1], container_name)
 
