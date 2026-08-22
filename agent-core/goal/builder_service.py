@@ -14,6 +14,7 @@ from .metrics_service import GoalMetricsService
 from .model import GoalRecord
 from .service import GoalService
 from .openhands_adapter import OpenHandsBuilderAdapter, OpenHandsUnavailableError
+from .runtime_policy import mvp_unrestricted_mode
 
 
 class GoalBuilderService:
@@ -48,7 +49,7 @@ class GoalBuilderService:
             self._persist(blocked, request)
             raise RuntimeError("BUILDER_BLOCKED")
         preflight_warnings = self._preflight_warnings(record.repo)
-        if preflight_warnings and self.policy.mode != "relaxed-acceptance":
+        if preflight_warnings and self.policy.mode != "relaxed-acceptance" and not mvp_unrestricted_mode():
             blocked = self.service.update_status(record, "BUILDER_BLOCKED", phase="builder-blocked", note="target repo working tree is dirty")
             self._persist(blocked, request)
             raise RuntimeError("BUILDER_BLOCKED")
@@ -226,6 +227,8 @@ class GoalBuilderService:
         ]
 
     def _policy_violation(self, request: BuilderRequest, result: BuilderResult) -> str | None:
+        if mvp_unrestricted_mode():
+            return None
         unauthorized = [item for item in result.changed_files if item not in request.allowed_files]
         if unauthorized and not request.allow_new_files:
             return f"unauthorized files: {', '.join(unauthorized)}"
