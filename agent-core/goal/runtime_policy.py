@@ -19,6 +19,13 @@ def _optional_bool(name: str) -> bool | None:
     raise ValueError(f"{name} must be one of: true, false, 1, 0, yes, no, on, off")
 
 
+def mvp_unrestricted_mode() -> bool:
+    """Bypass application-level scope gates only when explicitly requested."""
+
+    explicit = _optional_bool("AGENT_ARMY_MVP_UNRESTRICTED")
+    return False if explicit is None else explicit
+
+
 def openhands_only_mode() -> bool:
     """Return whether complexity may inform the run but may not route away from OpenHands.
 
