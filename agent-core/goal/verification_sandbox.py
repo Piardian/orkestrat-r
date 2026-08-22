@@ -212,9 +212,12 @@ def run_docker_commands_in_workspace(
             try:
                 proc = subprocess.run(
                     exec_argv,
-                    input=command_input,
+                    # Send an explicit LF byte stream. On Windows, subprocess
+                    # text mode translates ``\n`` to CRLF; the Linux shell then
+                    # leaves ``\r`` attached to the final argument (for example
+                    # npm receives ``test\r`` instead of ``test``).
+                    input=command_input.encode("utf-8") if command_input is not None else None,
                     capture_output=True,
-                    text=True,
                     timeout=max(1.0, float(timeout)),
                     check=False,
                 )
@@ -230,8 +233,8 @@ def run_docker_commands_in_workspace(
                     ],
                     "status": "PASS" if proc.returncode == 0 else "FAIL",
                     "exit_code": proc.returncode,
-                    "stdout": _clip(proc.stdout),
-                    "stderr": _clip(proc.stderr),
+                    "stdout": _clip(_as_text(proc.stdout)),
+                    "stderr": _clip(_as_text(proc.stderr)),
                     "duration_ms": elapsed,
                     "failure_code": None if proc.returncode == 0 else "NONZERO_EXIT",
                     "sandbox": sandbox,
