@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from .complexity import ComplexityAssessment, ComplexityAssessor
 from .metrics_service import GoalMetricsService
 from .model import GoalRecord
+from .runtime_policy import openhands_only_mode
 from .service import GoalService
 
 
@@ -26,8 +28,21 @@ class GoalComplexityService:
         record = self.service.update_status(record, "COMPLEXITY_ASSESSING", phase="complexity-assessing", note="complexity gate started")
         try:
             assessment = self.assessor.assess(goal_dir)
-            next_state = "READY_FOR_OPENHANDS" if assessment.severity in {"EASY", "MEDIUM"} else "CODEX_REQUIRED"
-            final_record = self.service.update_status(record, next_state, phase="complexity-assessed", note=f"severity={assessment.severity};executor={assessment.recommended_executor}")
+            openhands_only = openhands_only_mode()
+            if openhands_only and assessment.recommended_executor != "openhands":
+                assessment = replace(assessment, recommended_executor="openhands")
+            next_state = (
+                "READY_FOR_OPENHANDS"
+                if openhands_only or assessment.severity in {"EASY", "MEDIUM"}
+                else "CODEX_REQUIRED"
+            )
+            routing = ";routing=openhands-only" if openhands_only else ""
+            final_record = self.service.update_status(
+                record,
+                next_state,
+                phase="complexity-assessed",
+                note=f"severity={assessment.severity};executor={assessment.recommended_executor}{routing}",
+            )
             self.service.store.save_complexity_bundle(final_record, assessment)
             GoalMetricsService(self.service).refresh_goal(final_record.goal_id)
             return final_record, assessment

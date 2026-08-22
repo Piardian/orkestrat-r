@@ -9,18 +9,24 @@ import tarfile
 import tempfile
 import time
 from typing import Any
-import uuid
 
 from .builder import BuilderRequest, BuilderResult
 from .openhands_adapter import OpenHandsBuilderAdapter, OpenHandsUnavailableError
+from .runtime_policy import (
+    openhands_max_iterations,
+    openhands_stuck_detection_enabled,
+    openhands_terminal_enabled,
+)
+from .verification_sandbox import run_docker_commands_in_workspace
 
 
 class DockerOpenHandsBuilderAdapter(OpenHandsBuilderAdapter):
     """OpenHands builder that never gives the agent direct host execution.
 
-    The editing agent runs in OpenHands ``DockerWorkspace`` with only file-editing
-    tools. The resulting patch is then verified in a second disposable Docker
-    container with no network, no host secrets and bounded resources.
+    The editing agent runs in OpenHands ``DockerWorkspace``. OpenHands-only MVP
+    mode also enables its sandbox terminal so it can iterate on tests and local
+    service checks. The resulting patch is independently verified in a second
+    disposable Docker container with no network or host secrets.
     """
 
     def _execute_live(self, request: BuilderRequest, *, sdk_version: str, tools_version: str) -> BuilderResult:
@@ -32,6 +38,7 @@ class DockerOpenHandsBuilderAdapter(OpenHandsBuilderAdapter):
             from openhands.sdk.conversation import Conversation
             from openhands.tools.file_editor import FileEditorTool
             from openhands.tools.task_tracker import TaskTrackerTool
+            from openhands.tools.terminal import TerminalTool
             from openhands.tools.preset.default import get_default_tools
             from openhands.workspace import DockerWorkspace
         except Exception as exc:  # pragma: no cover - runtime-specific optional dependencies
@@ -76,10 +83,14 @@ class DockerOpenHandsBuilderAdapter(OpenHandsBuilderAdapter):
             patch_path.unlink()
 
         llm = self._build_llm(profile, api_key)
+        terminal_enabled = openhands_terminal_enabled()
+        allowed_tool_names = {FileEditorTool.name, TaskTrackerTool.name}
+        if terminal_enabled:
+            allowed_tool_names.add(TerminalTool.name)
         tools = [
             tool
             for tool in get_default_tools(enable_browser=False)
-            if tool.name in {FileEditorTool.name, TaskTrackerTool.name}
+            if tool.name in allowed_tool_names
         ]
         agent = Agent(llm=llm, tools=tools)
         conversation = None
@@ -112,7 +123,8 @@ class DockerOpenHandsBuilderAdapter(OpenHandsBuilderAdapter):
                 conversation = Conversation(
                     agent,
                     workspace=remote,
-                    max_iteration_per_run=max(1, min(self.policy.max_runtime_seconds // 30, 12)),
+                    max_iteration_per_run=openhands_max_iterations(self.policy.max_iterations),
+                    stuck_detection=openhands_stuck_detection_enabled(),
                 )
                 conversation.send_message(self._build_task_prompt(request))
 
@@ -237,7 +249,7 @@ class DockerOpenHandsBuilderAdapter(OpenHandsBuilderAdapter):
             verification_commands=list(request.verification_commands),
             verification_result=verification,
             openhands_executed=True,
-            terminal_tool_enabled=False,
+            terminal_tool_enabled=terminal_enabled,
             original_repo_modified=original_repo_modified,
             provider_requests=int(builder_runtime.get("provider_requests") or 0),
             provider_retries=int(builder_runtime.get("provider_retries") or 0),
@@ -293,121 +305,12 @@ def _run_docker_verification(
     image: str,
     timeout: float,
 ) -> dict[str, Any]:
-    if not commands:
-        return {
-            "status": "PASS",
-            "exit_code": 0,
-            "command": "none",
-            "stdout": "",
-            "stderr": "",
-            "duration_ms": 0,
-            "failure_code": None,
-            "command_results": [],
-            "reason": "",
-        }
-
-    results: list[dict[str, Any]] = []
-    total_ms = 0
-    for raw in commands:
-        command = str(raw).strip()
-        if not command:
-            continue
-        container_name = f"agent-army-verify-{uuid.uuid4().hex[:12]}"
-        argv = [
-            "docker",
-            "run",
-            "--rm",
-            "--name",
-            container_name,
-            "--network",
-            "none",
-            "--memory",
-            os.getenv("AGENT_ARMY_VERIFY_MEMORY", "2g"),
-            "--cpus",
-            os.getenv("AGENT_ARMY_VERIFY_CPUS", "2"),
-            "--pids-limit",
-            os.getenv("AGENT_ARMY_VERIFY_PIDS", "256"),
-            "--security-opt",
-            "no-new-privileges",
-            "--tmpfs",
-            "/tmp:rw,noexec,nosuid,size=256m",
-            "-v",
-            f"{workspace}:/workspace",
-            "-w",
-            "/workspace",
-            "--entrypoint",
-            "/bin/sh",
-            image,
-            "-lc",
-            command,
-        ]
-        started = time.perf_counter()
-        try:
-            proc = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                timeout=max(1.0, timeout),
-                check=False,
-                stdin=subprocess.DEVNULL,
-            )
-            elapsed = int((time.perf_counter() - started) * 1000)
-            total_ms += elapsed
-            item = {
-                "command": command,
-                "argv": ["docker", "<isolated-container>", command],
-                "status": "PASS" if proc.returncode == 0 else "FAIL",
-                "exit_code": proc.returncode,
-                "stdout": _clip(proc.stdout),
-                "stderr": _clip(proc.stderr),
-                "duration_ms": elapsed,
-                "failure_code": None if proc.returncode == 0 else "NONZERO_EXIT",
-                "sandbox": "docker-network-none",
-            }
-        except subprocess.TimeoutExpired as exc:
-            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, text=True, check=False)
-            elapsed = int((time.perf_counter() - started) * 1000)
-            total_ms += elapsed
-            item = {
-                "command": command,
-                "argv": ["docker", "<isolated-container>", command],
-                "status": "FAIL",
-                "exit_code": 124,
-                "stdout": _clip(exc.stdout or ""),
-                "stderr": _clip(exc.stderr or "") + f"\nVerification timed out after {timeout}s",
-                "duration_ms": elapsed,
-                "failure_code": "VERIFICATION_TIMEOUT",
-                "sandbox": "docker-network-none",
-            }
-        results.append(item)
-        if item["status"] != "PASS":
-            return {
-                "status": "FAIL",
-                "exit_code": item["exit_code"],
-                "command": command,
-                "stdout": item["stdout"],
-                "stderr": item["stderr"],
-                "duration_ms": total_ms,
-                "failure_code": item["failure_code"],
-                "command_results": results,
-                "reason": item["failure_code"] or "verification failed",
-                "sandbox": "docker-network-none",
-            }
-
-    return {
-        "status": "PASS",
-        "exit_code": 0,
-        "command": results[0]["command"] if results else "none",
-        "stdout": results[-1]["stdout"] if results else "",
-        "stderr": results[-1]["stderr"] if results else "",
-        "duration_ms": total_ms,
-        "failure_code": None,
-        "command_results": results,
-        "reason": "",
-        "sandbox": "docker-network-none",
-    }
-
-
-def _clip(text: str, limit: int = 8192) -> str:
-    value = text or ""
-    return value if len(value) <= limit else value[:limit] + "..."
+    return run_docker_commands_in_workspace(
+        commands,
+        workspace,
+        image=image,
+        timeout=timeout,
+        sandbox="docker-network-none",
+        cap_drop_all=False,
+        tmpfs_options="rw,noexec,nosuid,size=256m",
+    )

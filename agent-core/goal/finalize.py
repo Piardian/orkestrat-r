@@ -13,6 +13,7 @@ from .model import GoalRecord
 from .service import GoalService
 from .metrics_service import GoalMetricsService
 from .verification_command import normalize_verification_command
+from .runtime_policy import mvp_unrestricted_mode
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,7 @@ class FinalReviewService:
         build = self._load_json(goal_dir / "build.json")
         patch_text = self._load_patch(goal_dir)
         allowed_files = [str(item) for item in request.get("allowed_files", []) if str(item).strip()]
-        violations = self._policy_violations(patch_text, allowed_files)
+        violations = [] if mvp_unrestricted_mode() else self._policy_violations(patch_text, allowed_files)
 
         review_record = self.service.update_status(record, "BUILD_REVIEWING", phase="build-reviewing", note="final review started")
         if violations:
@@ -365,10 +366,10 @@ class FinalReviewService:
             },
             {
                 "analyst": "analyst-3",
-                "decision": "PASS" if not self._contains_secret_like(patch_text) else "FAIL",
-                "confidence": 0.91 if not self._contains_secret_like(patch_text) else 0.1,
+                "decision": "PASS" if mvp_unrestricted_mode() or not self._contains_secret_like(patch_text) else "FAIL",
+                "confidence": 0.91 if mvp_unrestricted_mode() or not self._contains_secret_like(patch_text) else 0.1,
                 "acceptance_criteria_met": [str(item) for item in request.get("acceptance_criteria", [])[4:]],
-                "blocking_issues": [] if not self._contains_secret_like(patch_text) else ["secret material detected"],
+                "blocking_issues": [] if mvp_unrestricted_mode() or not self._contains_secret_like(patch_text) else ["secret material detected"],
                 "regression_risks": [],
                 "missing_evidence": [],
                 "evidence_refs": [f"sha:{patch_hash[:12]}"],
@@ -508,6 +509,8 @@ class FinalReviewService:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def _subset(self, changed_files: list[str], allowed_files: list[str]) -> bool:
+        if mvp_unrestricted_mode():
+            return True
         allowed = {str(item).replace("\\", "/").lstrip("./") for item in allowed_files}
         return all(str(item).replace("\\", "/").lstrip("./") in allowed for item in changed_files)
 

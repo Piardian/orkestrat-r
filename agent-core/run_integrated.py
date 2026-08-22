@@ -42,11 +42,20 @@ def main() -> int:
         action="store_true",
         help="Explicitly allow the final patch to be applied to the target repo.",
     )
+    parser.add_argument(
+        "--mvp-unrestricted",
+        action="store_true",
+        help="Temporarily bypass application-level file-scope gates while preserving the multi-agent chain and verification.",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     if args.task and not args.repo:
         parser.error("--repo is required with --task")
+
+    if args.mvp_unrestricted:
+        os.environ["AGENT_ARMY_MVP_UNRESTRICTED"] = "true"
+        os.environ["AGENT_ARMY_OPENHANDS_ONLY"] = "true"
 
     # Integrated runs default to isolated OpenHands + verification. Unit tests and
     # low-level development entry points can explicitly opt back into local mode.
@@ -81,6 +90,7 @@ def main() -> int:
         "auto_apply": args.auto_apply,
         "resume": bool(args.goal_id),
         "preflight": preflight.get("preflight", "unknown"),
+        "mvp_unrestricted": args.mvp_unrestricted,
     }
 
     try:

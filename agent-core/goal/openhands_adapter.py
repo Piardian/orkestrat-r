@@ -12,6 +12,11 @@ from typing import Any
 from .builder import BuilderAdapter, BuilderRequest, BuilderResult
 from .builder_policy import BuilderPolicy
 from .builder_rate_limiter import BuilderRateLimitConfig, BuilderRateLimiter
+from .runtime_policy import (
+    openhands_max_iterations,
+    openhands_stuck_detection_enabled,
+    openhands_terminal_enabled,
+)
 
 LIVE_VALIDATION_ENV = "AGENT_CORE_OPENHANDS_LIVE_VALIDATION"
 
@@ -54,6 +59,14 @@ class OpenHandsBuilderAdapter(BuilderAdapter):
         criteria = "\n".join(f"- {c}" for c in request.acceptance_criteria) if request.acceptance_criteria else "- Satisfy the goal objective."
         constraints = "\n".join(f"- {c}" for c in request.constraints) if request.constraints else "- Do not modify any unauthorized files."
         verification = "\n".join(f"- {v}" for v in request.verification_commands) if request.verification_commands else "- Ensure existing tests pass."
+        terminal_enabled = openhands_terminal_enabled()
+        execution_rules = (
+            "- Use the terminal and file editor inside the isolated workspace.\n"
+            "- Run every requested verification command and iterate on the implementation until all checks pass.\n"
+            "- Start and stop temporary services cleanly; do not leave logs or runtime junk behind."
+            if terminal_enabled
+            else "- Use only local file editing tools; verification will run after editing."
+        )
 
         prompt = f"""You are working in a staging git workspace.
 
@@ -66,9 +79,9 @@ Allowed Files to Modify:
 Rules:
 - Do not modify any file outside the allowed files list.
 - Do not create unauthorized new files.
-- Use only local file editing tools.
+{execution_rules}
 - Keep changes minimal and focused directly on the task.
-- Stop when the edits are complete.
+- Stop only after the edits and available verification are complete.
 
 Acceptance Criteria:
 {criteria}
@@ -90,6 +103,7 @@ Verification Expectation:
             from openhands.sdk.workspace.local import LocalWorkspace
             from openhands.tools.file_editor import FileEditorTool
             from openhands.tools.task_tracker import TaskTrackerTool
+            from openhands.tools.terminal import TerminalTool
             from openhands.tools.preset.default import get_default_tools
         except Exception as exc:  # pragma: no cover - import failure is runtime-specific
             raise OpenHandsUnavailableError(f"OpenHands live imports failed: {exc}", kind="OPENHANDS_IMPORT_FAILED") from exc
@@ -118,12 +132,17 @@ Verification Expectation:
         original_repo_before = self._repo_snapshot(target_repo_path)
         workspace_before = self._workspace_snapshot(workspace_path)
         llm = self._build_llm(profile, api_key)
-        tools = [tool for tool in get_default_tools(enable_browser=False) if tool.name in {FileEditorTool.name, TaskTrackerTool.name}]
+        terminal_enabled = openhands_terminal_enabled()
+        allowed_tool_names = {FileEditorTool.name, TaskTrackerTool.name}
+        if terminal_enabled:
+            allowed_tool_names.add(TerminalTool.name)
+        tools = [tool for tool in get_default_tools(enable_browser=False) if tool.name in allowed_tool_names]
         agent = Agent(llm=llm, tools=tools)
         conversation = Conversation(
             agent,
             workspace=LocalWorkspace(working_dir=workspace_path),
-            max_iteration_per_run=max(1, min(self.policy.max_runtime_seconds // 30, 12)),
+            max_iteration_per_run=openhands_max_iterations(self.policy.max_iterations),
+            stuck_detection=openhands_stuck_detection_enabled(),
             delete_on_close=False,
         )
 
@@ -186,7 +205,7 @@ Verification Expectation:
             verification_commands=list(request.verification_commands),
             verification_result=verification,
             openhands_executed=True,
-            terminal_tool_enabled=False,
+            terminal_tool_enabled=terminal_enabled,
             original_repo_modified=original_repo_modified,
             provider_requests=int(builder_runtime.get("provider_requests") or 0),
             provider_retries=int(builder_runtime.get("provider_retries") or 0),

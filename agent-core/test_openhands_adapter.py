@@ -52,7 +52,7 @@ class OpenHandsAdapterTests(unittest.TestCase):
         self.assertEqual(result.status, "BUILT_PENDING_REVIEW")
         live_mock.assert_called_once()
 
-    def test_live_path_filters_terminal_tool_and_keeps_original_repo_unchanged(self) -> None:
+    def test_live_path_enables_terminal_and_uses_configured_mvp_iteration_budget(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = self._init_git_repo(root / "repo")
@@ -73,7 +73,14 @@ class OpenHandsAdapterTests(unittest.TestCase):
             adapter = OpenHandsBuilderAdapter(BuilderPolicy())
             patch_path = workspace / "build.patch"
             patch_path.write_text("diff --git a/calculator.py b/calculator.py\n", encoding="utf-8")
-            with patch.object(adapter, "_load_profile", return_value={
+            with patch.dict(
+                "os.environ",
+                {
+                    "AGENT_ARMY_OPENHANDS_ONLY": "true",
+                    "AGENT_ARMY_OPENHANDS_MAX_ITERATIONS": "2000",
+                },
+                clear=False,
+            ), patch.object(adapter, "_load_profile", return_value={
                 "id": "builder",
                 "provider": "gemini",
                 "model": "gemini/flash",
@@ -84,7 +91,7 @@ class OpenHandsAdapterTests(unittest.TestCase):
 
             self.assertEqual(result.status, "BUILT_PENDING_REVIEW")
             self.assertTrue(result.openhands_executed)
-            self.assertFalse(result.terminal_tool_enabled)
+            self.assertTrue(result.terminal_tool_enabled)
             self.assertEqual(result.changed_files, ["calculator.py"])
             self.assertFalse(result.original_repo_modified)
             self.assertTrue(result.patch_path)
@@ -92,7 +99,10 @@ class OpenHandsAdapterTests(unittest.TestCase):
             self.assertEqual((repo / "calculator.py").read_text(encoding="utf-8"), original)
             self.assertIn("FileEditorTool", fake_agent_state["tool_names"])
             self.assertIn("TaskTrackerTool", fake_agent_state["tool_names"])
-            self.assertNotIn("TerminalTool", fake_agent_state["tool_names"])
+            self.assertIn("TerminalTool", fake_agent_state["tool_names"])
+            self.assertEqual(fake_agent_state["max_iterations"], 2000)
+            self.assertFalse(fake_agent_state["stuck_detection"])
+            self.assertIn("Run every requested verification command", adapter._build_task_prompt(request))
 
     def test_live_provider_failure_propagates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -164,7 +174,11 @@ class OpenHandsAdapterTests(unittest.TestCase):
         )
 
     def _install_fake_openhands_modules(self, fail_with: Exception | None = None):
-        fake_state: dict[str, list[str]] = {"tool_names": []}
+        fake_state: dict[str, object] = {
+            "tool_names": [],
+            "max_iterations": None,
+            "stuck_detection": None,
+        }
 
         class FakeTool:
             name = "Tool"
@@ -188,8 +202,10 @@ class OpenHandsAdapterTests(unittest.TestCase):
                 self.working_dir = Path(working_dir)
 
         class FakeConversation:
-            def __init__(self, agent, workspace, max_iteration_per_run, delete_on_close):  # noqa: ANN001
+            def __init__(self, agent, workspace, max_iteration_per_run, stuck_detection, delete_on_close):  # noqa: ANN001
                 self.workspace = workspace
+                fake_state["max_iterations"] = max_iteration_per_run
+                fake_state["stuck_detection"] = stuck_detection
 
             def send_message(self, text):  # noqa: ANN001
                 pass
@@ -223,6 +239,8 @@ class OpenHandsAdapterTests(unittest.TestCase):
         tools_file_editor.FileEditorTool = FakeFileEditorTool
         tools_task_tracker = types.ModuleType("openhands.tools.task_tracker")
         tools_task_tracker.TaskTrackerTool = FakeTaskTrackerTool
+        tools_terminal = types.ModuleType("openhands.tools.terminal")
+        tools_terminal.TerminalTool = FakeTerminalTool
         tools_preset_default = types.ModuleType("openhands.tools.preset.default")
         tools_preset_default.get_default_tools = lambda enable_browser=False: [FakeFileEditorTool(), FakeTaskTrackerTool(), FakeTerminalTool()]
 
@@ -236,6 +254,7 @@ class OpenHandsAdapterTests(unittest.TestCase):
                 "openhands.sdk.tool.spec": sdk_tool_spec,
                 "openhands.tools.file_editor": tools_file_editor,
                 "openhands.tools.task_tracker": tools_task_tracker,
+                "openhands.tools.terminal": tools_terminal,
                 "openhands.tools.preset.default": tools_preset_default,
             },
         )
