@@ -9,7 +9,6 @@ import tarfile
 import tempfile
 import time
 from typing import Any
-import uuid
 
 from .builder import BuilderRequest, BuilderResult
 from .openhands_adapter import OpenHandsBuilderAdapter, OpenHandsUnavailableError
@@ -18,6 +17,7 @@ from .runtime_policy import (
     openhands_stuck_detection_enabled,
     openhands_terminal_enabled,
 )
+from .verification_sandbox import run_docker_commands_in_workspace
 
 
 class DockerOpenHandsBuilderAdapter(OpenHandsBuilderAdapter):
@@ -305,121 +305,12 @@ def _run_docker_verification(
     image: str,
     timeout: float,
 ) -> dict[str, Any]:
-    if not commands:
-        return {
-            "status": "PASS",
-            "exit_code": 0,
-            "command": "none",
-            "stdout": "",
-            "stderr": "",
-            "duration_ms": 0,
-            "failure_code": None,
-            "command_results": [],
-            "reason": "",
-        }
-
-    results: list[dict[str, Any]] = []
-    total_ms = 0
-    for raw in commands:
-        command = str(raw).strip()
-        if not command:
-            continue
-        container_name = f"agent-army-verify-{uuid.uuid4().hex[:12]}"
-        argv = [
-            "docker",
-            "run",
-            "--rm",
-            "--name",
-            container_name,
-            "--network",
-            "none",
-            "--memory",
-            os.getenv("AGENT_ARMY_VERIFY_MEMORY", "2g"),
-            "--cpus",
-            os.getenv("AGENT_ARMY_VERIFY_CPUS", "2"),
-            "--pids-limit",
-            os.getenv("AGENT_ARMY_VERIFY_PIDS", "256"),
-            "--security-opt",
-            "no-new-privileges",
-            "--tmpfs",
-            "/tmp:rw,noexec,nosuid,size=256m",
-            "-v",
-            f"{workspace}:/workspace",
-            "-w",
-            "/workspace",
-            "--entrypoint",
-            "/bin/sh",
-            image,
-            "-lc",
-            command,
-        ]
-        started = time.perf_counter()
-        try:
-            proc = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                timeout=max(1.0, timeout),
-                check=False,
-                stdin=subprocess.DEVNULL,
-            )
-            elapsed = int((time.perf_counter() - started) * 1000)
-            total_ms += elapsed
-            item = {
-                "command": command,
-                "argv": ["docker", "<isolated-container>", command],
-                "status": "PASS" if proc.returncode == 0 else "FAIL",
-                "exit_code": proc.returncode,
-                "stdout": _clip(proc.stdout),
-                "stderr": _clip(proc.stderr),
-                "duration_ms": elapsed,
-                "failure_code": None if proc.returncode == 0 else "NONZERO_EXIT",
-                "sandbox": "docker-network-none",
-            }
-        except subprocess.TimeoutExpired as exc:
-            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, text=True, check=False)
-            elapsed = int((time.perf_counter() - started) * 1000)
-            total_ms += elapsed
-            item = {
-                "command": command,
-                "argv": ["docker", "<isolated-container>", command],
-                "status": "FAIL",
-                "exit_code": 124,
-                "stdout": _clip(exc.stdout or ""),
-                "stderr": _clip(exc.stderr or "") + f"\nVerification timed out after {timeout}s",
-                "duration_ms": elapsed,
-                "failure_code": "VERIFICATION_TIMEOUT",
-                "sandbox": "docker-network-none",
-            }
-        results.append(item)
-        if item["status"] != "PASS":
-            return {
-                "status": "FAIL",
-                "exit_code": item["exit_code"],
-                "command": command,
-                "stdout": item["stdout"],
-                "stderr": item["stderr"],
-                "duration_ms": total_ms,
-                "failure_code": item["failure_code"],
-                "command_results": results,
-                "reason": item["failure_code"] or "verification failed",
-                "sandbox": "docker-network-none",
-            }
-
-    return {
-        "status": "PASS",
-        "exit_code": 0,
-        "command": results[0]["command"] if results else "none",
-        "stdout": results[-1]["stdout"] if results else "",
-        "stderr": results[-1]["stderr"] if results else "",
-        "duration_ms": total_ms,
-        "failure_code": None,
-        "command_results": results,
-        "reason": "",
-        "sandbox": "docker-network-none",
-    }
-
-
-def _clip(text: str, limit: int = 8192) -> str:
-    value = text or ""
-    return value if len(value) <= limit else value[:limit] + "..."
+    return run_docker_commands_in_workspace(
+        commands,
+        workspace,
+        image=image,
+        timeout=timeout,
+        sandbox="docker-network-none",
+        cap_drop_all=False,
+        tmpfs_options="rw,noexec,nosuid,size=256m",
+    )
