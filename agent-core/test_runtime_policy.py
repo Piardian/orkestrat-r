@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from goal.runtime_policy import (
+    mvp_unrestricted_mode,
     openhands_max_iterations,
     openhands_only_mode,
     openhands_stuck_detection_enabled,
@@ -13,6 +14,12 @@ from goal.runtime_policy import (
 
 
 class RuntimePolicyTests(unittest.TestCase):
+    def test_unrestricted_mode_is_explicit_and_defaults_off(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(mvp_unrestricted_mode())
+        with patch.dict(os.environ, {"AGENT_ARMY_MVP_UNRESTRICTED": "true"}, clear=True):
+            self.assertTrue(mvp_unrestricted_mode())
+
     def test_mvp_defaults_to_openhands_only_with_terminal_and_no_stuck_detection(self) -> None:
         keys = [
             "AGENT_ARMY_OPENHANDS_ONLY",
